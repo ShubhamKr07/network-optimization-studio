@@ -90,6 +90,7 @@ vi.mock("../lib/sessionUser.js", () => ({
 }));
 
 import app from "../app.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { WAREHOUSES, CUSTOMERS, BRAZIL_WAREHOUSES, BRAZIL_REGIONS } from "../data/dataset.js";
 import { TRANSPORT_COAL_WAREHOUSES, TRANSPORT_COAL_CUSTOMERS } from "../data/transportCoalDataset.js";
 import { GOLD_REFINERIES, GOLD_CUSTOMERS } from "../data/twoEchelonDataset.js";
@@ -147,7 +148,7 @@ beforeAll(async () => {
 
 async function loginAs(userId: string): Promise<string> {
   mockDb.select.mockReturnValueOnce(
-    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash }]),
+    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION }]),
   );
   const res = await request(app)
     .post("/api/auth/login")

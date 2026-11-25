@@ -180,6 +180,8 @@ export * from './solveResult';
 export * from './solveResultDetails';
 export * from './solveResultStatus';
 export * from './terminationReason';
+export * from './termsRequiredError';
+export * from './termsRequiredErrorError';
 export * from './transportAssignment';
 export * from './transportRates';
 export * from './updateDistanceBandsBody';

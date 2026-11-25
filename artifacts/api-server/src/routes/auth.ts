@@ -18,6 +18,8 @@ import {
   resetPasswordBodyPasswordMax,
 } from "@workspace/api-zod";
 import { SESSION_COOKIE, SESSION_TTL_MS, sessionCookieValue, sessionUser } from "../middlewares/auth.js";
+import type { TermsRequiredError } from "@workspace/api-zod";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { posthog } from "../lib/posthog.js";
 import { withNormalizedEmail } from "../lib/normalizeEmail.js";
 import { sendEmail } from "../lib/email.js";
@@ -119,6 +121,12 @@ router.post("/auth/register", async (req: Request, res: Response) => {
     return;
   }
   const { email, password } = parsed.data;
+  // WQF-B3 — the box is the consent; no tick, no account. Checked before any
+  // lookup so a refused request costs nothing and reveals nothing.
+  if (parsed.data.acceptTerms !== true) {
+    res.status(400).json({ error: "Accept the Terms of Service and the Privacy Notice to create an account." });
+    return;
+  }
 
   let existing: Awaited<ReturnType<typeof findUserByEmail>>;
   try {
@@ -141,6 +149,8 @@ router.post("/auth/register", async (req: Request, res: Response) => {
       email,
       passwordHash,
       role: "student",
+      termsVersion: CURRENT_TERMS_VERSION,
+      termsAcceptedAt: sql`now()`,
     }).returning();
   } catch {
     logger.error({ step: "register-insert" }, "user insert failed");
@@ -195,6 +205,27 @@ router.post("/auth/login", async (req: Request, res: Response) => {
   if (!user || !validPassword) {
     res.status(401).json({ error: "Invalid email or password" });
     return;
+  }
+
+  // WQF-B3 — after the password check, never before: the terms state of an
+  // account is not revealed to someone who does not hold its password.
+  if (user.termsVersion !== CURRENT_TERMS_VERSION) {
+    if (parsed.data.acceptTerms !== true) {
+      const body: TermsRequiredError = { error: "terms_required" };
+      res.status(403).json(body);
+      return;
+    }
+    // D2 — written only when stale, so termsAcceptedAt is when THIS version
+    // was first accepted. No error binding (drizzle params carry the user id).
+    try {
+      await db.update(usersTable)
+        .set({ termsVersion: CURRENT_TERMS_VERSION, termsAcceptedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id));
+    } catch {
+      logger.error({ step: "login-terms-accept" }, "terms acceptance write failed");
+      res.status(500).json({ error: "Could not sign in." });
+      return;
+    }
   }
 
   setSessionCookie(res, user);

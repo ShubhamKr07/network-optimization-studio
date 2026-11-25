@@ -5566,3 +5566,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - `/terms` and `/privacy` pages land in B2; links point at the paths regardless.
 - e2e gate EXPECTED RED until B8: UI-login specs now need a tick: `bundle4-auth-landing.spec.ts:87`, `design-upgrade-p5.spec.ts:385,996`, `design-system.spec.ts:174`.
 - `tsc --noEmit -p .` in the worktree reports 246 errors identical before/after (unbuilt `lib/*/dist` project references, TS6305), none introduced here.
+
+### WQF-B4 — terms acceptance at register and log in
+- `users` gains `terms_version text` and `terms_accepted_at timestamptz`, both nullable, no backfill (hard rule #3). Pushed to **local `nos_dev` only**; measured `information_schema`: `terms_accepted_at|timestamp with time zone|YES`, `terms_version|text|YES`. **Production is not yet migrated (WQF-B12 does it first).**
+- Register answers 400 unless `acceptTerms === true`, and records the current version with a DB-side `now()` (D3). Log-in checks the password first, then 403 `{ error: "terms_required" }` (no cookie) when the stored version is stale and `acceptTerms` is not true; when true it writes the acceptance only if stale (D2). `TermsRequiredError` added to the OpenAPI enum, regenerated types and the server's typed literal (one change, three places).
+- `artifacts/api-server/src/lib/terms.ts` (`CURRENT_TERMS_VERSION = "2026-11-25"`, provisional until B9) is created here, byte-identical to what B2 specifies, because B4 consumes it and B2 runs in a different worktree; the two identical adds merge cleanly.
+- Tests: `auth.test.ts` +7 mocked (red first: 5 failed), `termsConsentIntegration.test.ts` 3 real-Postgres (2 red first). Mocked log-in rows in `auth`, `routes`, `error-handling`, `importMultiModelRoundTrip` tests gained `termsVersion: CURRENT_TERMS_VERSION`; no assertion changed.
+- Gate: typecheck clean; touched + related api-server files 484/484 green. Full suite runs at the end of WQF-B6.

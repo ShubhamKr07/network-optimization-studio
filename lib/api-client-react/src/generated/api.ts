@@ -67,6 +67,7 @@ import type {
   SolveHistoryEntry,
   SolveJob,
   SolveJobQueued,
+  TermsRequiredError,
   UpdateDistanceBandsBody,
   UpdateInboundDistanceBandsBody,
   WatBotConversation,
@@ -2040,7 +2041,7 @@ export const loginUser = async (loginRequest: LoginRequest, options?: RequestIni
 
 
 
-export const getLoginUserMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+export const getLoginUserMutationOptions = <TError = ErrorType<ErrorEnvelope | TermsRequiredError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loginUser>>, TError,{data: BodyType<LoginRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof loginUser>>, TError,{data: BodyType<LoginRequest>}, TContext> => {
 
@@ -2069,12 +2070,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type LoginUserMutationResult = NonNullable<Awaited<ReturnType<typeof loginUser>>>
     export type LoginUserMutationBody = BodyType<LoginRequest>
-    export type LoginUserMutationError = ErrorType<ErrorEnvelope>
+    export type LoginUserMutationError = ErrorType<ErrorEnvelope | TermsRequiredError>
 
     /**
  * @summary Log in with email and password
  */
-export const useLoginUser = <TError = ErrorType<ErrorEnvelope>,
+export const useLoginUser = <TError = ErrorType<ErrorEnvelope | TermsRequiredError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof loginUser>>, TError,{data: BodyType<LoginRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof loginUser>>,

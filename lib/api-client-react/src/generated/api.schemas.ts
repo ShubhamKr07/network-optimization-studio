@@ -209,7 +209,7 @@ export interface RegisterRequest {
      * @maxLength 128
      */
   password: string;
-  /** Whether the student ticked "I agree to the Terms of Service and the Privacy Notice". Optional in the schema so the server, not the validator, owns the refusal sentence. */
+  /** Must be true (the student ticked the terms box); otherwise the server answers 400. The server records the current terms version and time on the new account. */
   acceptTerms?: boolean;
 }
 
@@ -222,7 +222,7 @@ export interface LoginRequest {
      * @maxLength 128
      */
   password: string;
-  /** Whether the student ticked the terms box on the log-in form. */
+  /** Required as true only when the account has not accepted the current terms version, in which case its absence answers 403 terms_required; when true and the stored version is stale, the server records the current version and time. */
   acceptTerms?: boolean;
 }
 
@@ -266,6 +266,17 @@ export type LogoutSuccess = typeof LogoutSuccessValue;
 
 export interface ErrorEnvelope {
   error: string;
+}
+
+export type TermsRequiredErrorError = typeof TermsRequiredErrorError[keyof typeof TermsRequiredErrorError];
+
+
+export const TermsRequiredErrorError = {
+  terms_required: 'terms_required',
+} as const;
+
+export interface TermsRequiredError {
+  error: TermsRequiredErrorError;
 }
 
 export interface NetworkImportIssue {

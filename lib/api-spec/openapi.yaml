@@ -916,6 +916,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+        '400':
+          description: >-
+            Email or password invalid, or acceptTerms is not true (the student
+            did not tick the terms box).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '409':
           description: An account with this email already exists.
           content:
@@ -946,6 +954,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: >-
+            The password was correct, but the account has not accepted the
+            current Terms of Service and Privacy Notice and the request did not
+            carry acceptTerms: true. No session cookie is set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TermsRequiredError'
   /auth/logout:
     post:
       tags: [Auth]
@@ -1546,9 +1563,9 @@ components:
         acceptTerms:
           type: boolean
           description: >-
-            Whether the student ticked "I agree to the Terms of Service and the
-            Privacy Notice". Optional in the schema so the server, not the
-            validator, owns the refusal sentence.
+            Must be true (the student ticked the terms box); otherwise the
+            server answers 400. The server records the current terms version
+            and time on the new account.
     LoginRequest:
       type: object
       required: [email, password]
@@ -1570,7 +1587,11 @@ components:
             is indistinguishable from any other bad credential.
         acceptTerms:
           type: boolean
-          description: Whether the student ticked the terms box on the log-in form.
+          description: >-
+            Required as true only when the account has not accepted the current
+            terms version, in which case its absence answers 403 terms_required;
+            when true and the stored version is stale, the server records the
+            current version and time.
     ForgotPasswordRequest:
       type: object
       required: [email]
@@ -1630,6 +1651,13 @@ components:
       properties:
         error:
           type: string
+    TermsRequiredError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [terms_required]
     NetworkImportIssue:
       type: object
       required: [path, message]

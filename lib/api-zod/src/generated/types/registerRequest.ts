@@ -15,6 +15,6 @@ export interface RegisterRequest {
      * @maxLength 128
      */
   password: string;
-  /** Whether the student ticked "I agree to the Terms of Service and the Privacy Notice". Optional in the schema so the server, not the validator, owns the refusal sentence. */
+  /** Must be true (the student ticked the terms box); otherwise the server answers 400. The server records the current terms version and time on the new account. */
   acceptTerms?: boolean;
 }

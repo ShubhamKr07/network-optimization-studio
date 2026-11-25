@@ -15,6 +15,6 @@ export interface LoginRequest {
      * @maxLength 128
      */
   password: string;
-  /** Whether the student ticked the terms box on the log-in form. */
+  /** Required as true only when the account has not accepted the current terms version, in which case its absence answers 403 terms_required; when true and the stored version is stale, the server records the current version and time. */
   acceptTerms?: boolean;
 }

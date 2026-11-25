@@ -45,6 +45,7 @@ vi.mock("../lib/sessionUser.js", () => ({
 }));
 
 import app from "../app.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ beforeEach(() => {
 async function loginAs(userId: string): Promise<string> {
   mockDb.select.mockReturnValueOnce(
     makeChain([
-      { id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash },
+      { id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION },
     ]),
   );
   const res = await request(app)

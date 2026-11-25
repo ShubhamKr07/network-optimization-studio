@@ -69,6 +69,7 @@ vi.mock("../lib/sessionUser.js", () => ({
 }));
 
 import app from "../app.js";
+import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
 import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
 
@@ -100,7 +101,7 @@ const OWNER = "seed-user-id";
 
 async function loginAs(userId: string): Promise<string> {
   mockDb.select.mockReturnValueOnce(
-    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash }]),
+    makeChain([{ id: userId, email: `${userId}@example.com`, role: "student", passwordHash: testPasswordHash, termsVersion: CURRENT_TERMS_VERSION }]),
   );
   const res = await request(app)
     .post("/api/auth/login")

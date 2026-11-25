@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 // TODO(remove after v2 stabilizes): unused by the email/password cookie session in A1.3.
 export const sessionsTable = pgTable(
@@ -23,6 +23,13 @@ export const usersTable = pgTable("users", {
   // means `drizzle-kit push` needs no two-step NOT NULL protocol.
   resetTokenHash: varchar("reset_token_hash"),
   resetTokenExpiresAt: timestamp("reset_token_expires_at", { withTimezone: true }),
+  // WQF-B (spec B3) — the terms acceptance record. Both nullable, no backfill:
+  // a null version means "has not accepted the CURRENT terms", which signs the
+  // user out (middlewares/auth.ts) until they log in with the box ticked.
+  // NOT NULL would need hard rule #3's two-step protocol. timestamptz per
+  // lib/db/CLAUDE.md; written DB-side (now()) by both writers (D3).
+  termsVersion: text("terms_version"),
+  termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
   role: varchar("role").notNull().default("student"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
