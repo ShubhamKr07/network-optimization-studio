@@ -9,8 +9,7 @@ import * as analytics from "@/lib/analytics";
 // login/register/logout) was a routing/timing issue that a fully-mocked
 // router could never reproduce or guard against. Page components are
 // stubbed so this test is purely about routing, not their internals.
-vi.mock("@/pages/auth/Login", () => ({ Login: () => <div>LoginPage</div> }));
-vi.mock("@/pages/auth/Register", () => ({ Register: () => <div>RegisterPage</div> }));
+vi.mock("@/pages/auth/SignIn", () => ({ SignIn: ({ initialMode }: { initialMode: string }) => <div>SignInPage:{initialMode}</div> }));
 vi.mock("@/pages/auth/ResetPassword", () => ({ ResetPassword: () => <div>ResetPasswordPage</div> }));
 vi.mock("@/pages/auth/ForgotPassword", () => ({ ForgotPassword: () => <div>ForgotPasswordPage</div> }));
 vi.mock("@/pages/legal/LegalPage", () => ({ LegalPage: ({ doc }: { doc: { slug: string } }) => <div>LegalPage:{doc.slug}</div> }));
@@ -19,7 +18,7 @@ vi.mock("@/pages/Workspace", () => ({ Workspace: () => <div>WorkspacePage</div> 
 vi.mock("@/components/AppShell", () => ({
   AppShell: ({ children, heroTitle }: { children: React.ReactNode; heroTitle?: string }) => (
     <div data-testid="app-shell">
-      {heroTitle ? <div>{heroTitle}</div> : <div>SCND Optimization Studio</div>}
+      {heroTitle ? <div>{heroTitle}</div> : <div>fallback-wordmark</div>}
       {children}
     </div>
   ),
@@ -34,15 +33,18 @@ import { Gate } from "@/App";
 
 function renderAt(path: string, user: { email: string; id?: string } | null) {
   mockUseGetCurrentAuthUser.mockReturnValue({ data: { user }, isLoading: false });
-  const { hook } = memoryLocation({ path });
+  const { hook, history } = memoryLocation({ path, record: true });
   const queryClient = new QueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <Router hook={hook}>
-        <Gate />
-      </Router>
-    </QueryClientProvider>,
-  );
+  return {
+    history,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <Router hook={hook}>
+          <Gate />
+        </Router>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", () => {
@@ -51,21 +53,23 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
   // own catch-all fired independently the instant location changed, even
   // before Gate itself re-rendered with fresh auth data — landing on a
   // route the OTHER tree owned, which fell through to a hard NotFound.
-  it("never shows NotFound at / while unauthenticated (redirects toward /login instead)", () => {
-    renderAt("/", null);
+  it("renders the cover sign-in page at / while unauthenticated, in log-in mode, with no redirect (CSI-1)", () => {
+    const { history } = renderAt("/", null);
+    expect(screen.getByText("SignInPage:login")).toBeInTheDocument();
     expect(screen.queryByText("LandingPage")).not.toBeInTheDocument();
+    expect(history).toEqual(["/"]);
   });
 
   it("never shows NotFound at /login while authenticated (redirects to / instead)", () => {
     renderAt("/login", { email: "student@example.com" });
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
-    expect(screen.queryByText("LoginPage")).not.toBeInTheDocument();
+    expect(screen.queryByText("SignInPage:login")).not.toBeInTheDocument();
   });
 
   it("never shows NotFound at /register while authenticated (redirects to / instead)", () => {
     renderAt("/register", { email: "student@example.com" });
     expect(screen.getByText("LandingPage")).toBeInTheDocument();
-    expect(screen.queryByText("RegisterPage")).not.toBeInTheDocument();
+    expect(screen.queryByText("SignInPage:register")).not.toBeInTheDocument();
   });
 
   it("lets a logged-in visitor reach /reset-password (live session must not waste the emailed token)", () => {
@@ -79,14 +83,14 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
     expect(screen.queryByText("ForgotPasswordPage")).not.toBeInTheDocument();
   });
 
-  it("shows Login at /login when unauthenticated", () => {
+  it("shows the log-in mode at /login when unauthenticated", () => {
     renderAt("/login", null);
-    expect(screen.getByText("LoginPage")).toBeInTheDocument();
+    expect(screen.getByText("SignInPage:login")).toBeInTheDocument();
   });
 
-  it("shows Register at /register when unauthenticated", () => {
+  it("shows the create-account mode at /register when unauthenticated", () => {
     renderAt("/register", null);
-    expect(screen.getByText("RegisterPage")).toBeInTheDocument();
+    expect(screen.getByText("SignInPage:register")).toBeInTheDocument();
   });
 
   it("shows Landing at / when authenticated, inside AppShell", () => {
@@ -97,7 +101,7 @@ describe("Gate routing — a fixed route set (no swapped auth/unauth trees)", ()
 
   it("redirects an unknown path to /login when unauthenticated (not a bare 404)", () => {
     renderAt("/some-unknown-path", null);
-    expect(screen.getByText("LoginPage")).toBeInTheDocument();
+    expect(screen.getByText("SignInPage:login")).toBeInTheDocument();
   });
 });
 
@@ -114,7 +118,7 @@ describe("Gate routing — A0.2 pilot flip: /chapter-3 renders Workspace, not St
 
   it("redirects to /login at /chapter-3 when unauthenticated, same as every other chapter route", () => {
     renderAt("/chapter-3", null);
-    expect(screen.getByText("LoginPage")).toBeInTheDocument();
+    expect(screen.getByText("SignInPage:login")).toBeInTheDocument();
     expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
   });
 
@@ -125,12 +129,12 @@ describe("Gate routing — band hero title", () => {
   it("passes heroTitle=\"Network Design Labs\" to AppShell at /", () => {
     renderAt("/", { email: "student@example.com" });
     expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
-    expect(screen.queryByText("SCND Optimization Studio")).not.toBeInTheDocument();
+    expect(screen.queryByText("fallback-wordmark")).not.toBeInTheDocument();
   });
 
-  it("renders the small SCND Optimization Studio wordmark fallback, not the large green hero title, at an unknown authenticated path (NotFound)", () => {
+  it("renders the small wordmark fallback, not the large green hero title, at an unknown authenticated path (NotFound)", () => {
     renderAt("/some-unknown-path", { email: "student@example.com" });
-    expect(screen.getByText("SCND Optimization Studio")).toBeInTheDocument();
+    expect(screen.getByText("fallback-wordmark")).toBeInTheDocument();
     expect(screen.queryByText("Network Design Labs")).not.toBeInTheDocument();
   });
 });
@@ -156,7 +160,7 @@ describe("Gate routing — A5.1/A5.2/A5.3 fast-follow flips: every chapter route
     "redirects to /login at %s when unauthenticated",
     (path) => {
       renderAt(path, null);
-      expect(screen.getByText("LoginPage")).toBeInTheDocument();
+      expect(screen.getByText("SignInPage:login")).toBeInTheDocument();
       expect(screen.queryByText("WorkspacePage")).not.toBeInTheDocument();
     },
   );

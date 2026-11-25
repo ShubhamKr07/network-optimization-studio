@@ -10,8 +10,7 @@ import { Landing } from "@/pages/Landing";
 import { Workspace } from "@/pages/Workspace";
 import { LegalPage } from "@/pages/legal/LegalPage";
 import { TERMS_OF_SERVICE, PRIVACY_NOTICE } from "@/pages/legal/legalText";
-import { Login } from "@/pages/auth/Login";
-import { Register } from "@/pages/auth/Register";
+import { SignIn } from "@/pages/auth/SignIn";
 import { ForgotPassword } from "@/pages/auth/ForgotPassword";
 import { ResetPassword } from "@/pages/auth/ResetPassword";
 import { AppShell } from "@/components/AppShell";
@@ -60,15 +59,16 @@ export function Gate() {
 
   return (
     <Switch>
-      <Route path="/login">{user ? <Redirect to="/" /> : <Login />}</Route>
-      <Route path="/register">{user ? <Redirect to="/" /> : <Register />}</Route>
+      <Route path="/login">{user ? <Redirect to="/" /> : <SignIn initialMode="login" />}</Route>
+      <Route path="/register">{user ? <Redirect to="/" /> : <SignIn initialMode="register" />}</Route>
       <Route path="/forgot-password">{user ? <Redirect to="/" /> : <ForgotPassword />}</Route>
       <Route path="/reset-password"><ResetPassword /></Route>
       {/* WQF-B1 — public for every visitor, signed in or not, so the consent
           links work from the log-in form and from the home footer alike. */}
       <Route path="/terms"><LegalPage doc={TERMS_OF_SERVICE} /></Route>
       <Route path="/privacy"><LegalPage doc={PRIVACY_NOTICE} /></Route>
-      <Route path="/">{authedOnly(<Landing />, "Network Design Labs", true)}</Route>
+      {/* Signed-out "/" is the public cover sign-in page (CSI-1), not a redirect. */}
+      <Route path="/">{user ? authedOnly(<Landing />, "Network Design Labs", true) : <SignIn initialMode="login" />}</Route>
       {CHAPTERS.map((c) => (
         <Route key={c.path} path={c.path}>
           {/* ch4-lock — a locked chapter's route STAYS registered (this file's

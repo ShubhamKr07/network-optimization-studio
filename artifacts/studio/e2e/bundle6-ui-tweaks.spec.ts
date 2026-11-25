@@ -29,10 +29,10 @@
  *   (b) Unauthenticated (`storageState: undefined`, mirroring
  *       bundle4-auth-landing.spec.ts — `Gate` redirects an authed session
  *       away from `/login`):
- *       - T6 items 11/13: Login's Register link text + email placeholder.
- *       - T6 item 10: DeveloperCredit footer copy.
- *       - T5 item 12: the auth labs strip shows the visible chapters
- *         (Chapter 3, Chapter 4, Chapter 5, Chapter 9).
+ *       - T6 items 11/13: the "Create account" toggle + email placeholder.
+ *       - T6 item 10: the developer help line (cover footer band).
+ *       - T5 item 12 (auth labs strip) was retired by CSI-1/L12: the cover page
+ *         carries no chapter names; bundle4-auth-landing asserts their absence.
  *
  * Deliberately NOT covered here: `labs.spec.ts` (known debt, stale
  * remote/pre-D0 shape — excluded from this run per CLAUDE.md and the plan's
@@ -346,28 +346,22 @@ test.describe("Bundle 6 — Login/auth copy (unauthenticated)", () => {
   // session at all.
   test.use({ storageState: undefined });
 
-  test("/login shows the Register link, example.com placeholder, footer copy, and the visible-chapters labs strip", async ({ page }) => {
+  test("/login shows the Create account toggle, example.com placeholder, and developer footer copy", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByTestId("auth-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
 
-    // T6 item 11 — register link text is exactly "Register".
-    const registerLink = page.getByRole("link", { name: "Register", exact: true });
-    await expect(registerLink).toBeVisible();
+    // T6 item 11 — the create-account entry is the exact "Create account" toggle (CSI-1/L3: was the
+    // "Register" link); the old "Register with your course email" copy stays gone.
+    const registerToggle = page.getByTestId("mode-register");
+    await expect(registerToggle).toBeVisible();
+    await expect(registerToggle).toHaveText("Create account");
     await expect(page.getByText("Register with your course email")).toHaveCount(0);
 
     // T6 item 13 — email placeholder is you@example.com.
     await expect(page.getByTestId("input-email")).toHaveAttribute("placeholder", "you@example.com");
 
-    // T6 item 10 — footer copy is "Reach out at".
-    await expect(page.getByTestId("auth-credit")).toContainText("Reach out at");
-    await expect(page.getByTestId("auth-credit")).not.toContainText("Reach me out at");
-
-    // The labs strip shows the visible (non-hiddenFromLanding) chapters —
-    // Chapter 3, Chapter 4, Chapter 5 (delivery-teaching-us), Chapter 9
-    // (JADE, visible though ch4-lock makes it inert on Landing), Chapter 10
-    // (ch10-unhide), then Super Model. transport-coal and p-median-brazil stay
-    // hiddenFromLanding, so neither appears here regardless of lock state — see
-    // bundle4-auth-landing.spec.ts's matching assertion.
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Chapter 10Super Model");
+    // T6 item 10 — footer copy "Reach out at" became the footer band's help line (CSI-1/L11).
+    await expect(page.getByTestId("cover-help")).toContainText("Trouble signing in? Contact the developer");
+    await expect(page.getByTestId("cover-help")).not.toContainText("Reach me out at");
   });
 });

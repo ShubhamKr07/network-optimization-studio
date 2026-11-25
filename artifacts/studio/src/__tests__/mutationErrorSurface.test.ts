@@ -46,8 +46,7 @@ const ALLOWED_NO_ONERROR: { file: string; call: string; reason: string }[] = [
   { file: "components/ImportDialog.tsx", call: "applyMutation.mutate(", reason: "renders describeImportError(applyMutation.error) when isError" },
   { file: "components/workspace/super/SuperNetworkImportDialog.tsx", call: "importMutation.mutate(", reason: "renders issues / describeImportError(importMutation.error) when isError" },
   { file: "components/workspace/super/SuperRoadDistancesDialog.tsx", call: "fetchRoad.mutate(", reason: "renders describeRoadError(fetchRoad.error) in super-road-error when isError" },
-  { file: "pages/auth/Login.tsx", call: "loginUser.mutate(", reason: "renders alert-login-error when isError" },
-  { file: "pages/auth/Register.tsx", call: "registerUser.mutate(", reason: "renders alert-register-error from registerUser.error" },
+  { file: "pages/auth/SignIn.tsx", call: "mutation.mutate(", reason: "renders alert-login-error / alert-register-error from describeWriteError(mutation.error) when isError" },
   { file: "components/DeleteAccountDialog.tsx", call: "deleteAccount.mutate(", reason: "renders alert-delete-error from describeWriteError(deleteAccount.error) when isError" },
 ];
 

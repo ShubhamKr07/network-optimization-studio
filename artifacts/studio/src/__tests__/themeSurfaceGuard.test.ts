@@ -17,8 +17,6 @@ const isCode = (l: string) => !/^\s*(\/\/|\*|\/\*)/.test(l);
 const ALLOWED: Array<[string, string, string]> = [
   ["components/AppShell.tsx", "var(--ink-300)", "ink header band (Q8)"],
   ["components/AppShell.tsx", "var(--green-400)", "ink header band title (Q8)"],
-  ["components/auth/AuthShell.tsx", "var(--ink-300)", "ink header panel (Q8)"],
-  ["components/auth/AuthShell.tsx", "var(--green-400)", "ink header panel border + diamond (Q8)"],
   ["pages/Workspace.tsx", "var(--ink-", "ink header band :4593-4629 (Q8)"],
 ];
 function walk(dir: string): string[] {

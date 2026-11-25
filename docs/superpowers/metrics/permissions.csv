@@ -46,3 +46,4 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-11-25T14:13:05.313Z,WQF-A,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
 2026-11-25T14:13:07.490Z,WQF-B,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
 2026-11-25T14:13:09.571Z,WQF-C,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
+2026-11-25T16:51:18.028Z,CSI,870,unknown,0,0,,101,0,"allow_new unknown: run from a worktree with no permissions baseline (.harness is per-checkout), so the derived 870 was every grant, not new ones"

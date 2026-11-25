@@ -153,29 +153,25 @@ function expectRealShadowLayer(actual: string, expectedLayer: string): void {
 }
 
 test.describe("Bundle 3 — book-cover design system", () => {
-  test("auth chrome: band header ink bg + primary button ≈ green-600 + accent focus-contrast (AA fix)", async ({ page }) => {
+  test("auth chrome: cover band green + enabled submit button colours + accent focus-contrast (AA fix)", async ({ page }) => {
     await page.goto("/login");
-    // Bundle 4 renamed the AuthShell band header: the old single
-    // `auth-band` testid is gone (0 src refs) — `auth-shell` is now the
-    // outer flex container (plain bg-background), and `auth-cover` is the
-    // ink-backgrounded band panel this test actually cares about.
-    await expect(page.getByTestId("auth-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("auth-cover")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    // CSI-1 replaced AuthShell: `cover-shell` is the light-only cover page; its green top
+    // band and footer band are decorative `.band` elements (`--band`, a literal hex), so
+    // the exact-colour check moves to the band element itself.
+    await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    const bandBg = await page.getByTestId("cover-shell").locator(".band").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bandBg).toBe("rgb(31, 127, 36)"); // --band #1F7F24, a literal hex
 
-    // Band header background ≈ ink. --surface-band is a literal complete
-    // hex (#181A15), so this is an exact assertion, not an approximation.
-    const bandBg = await page.getByTestId("auth-cover").evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(bandBg).toBe("rgb(24, 26, 21)");
-
-    // Primary button (Login's submit — default/primary Button variant)
-    // color ≈ green-600. --primary is an HSL triple (82 52% 33%), meant to
-    // represent the same color as --green-600's hex — resolved via the real
-    // browser on both sides rather than hand-converting HSL ourselves.
+    // Submit button (enabled): the cover's light button, deep-green label. Both are literal
+    // hexes in cover.css (--strip-ink #F4F8F1, --band-deep #17661B), so the check is exact; it
+    // replaces the old "primary ≈ green-600" check because the cover uses no theme token (L6).
     // Tick the (mandatory) terms box so the measured colour is the enabled button students click.
     await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
-    const loginButtonBg = await page.getByTestId("button-login").evaluate((el) => getComputedStyle(el).backgroundColor);
-    const green600 = await resolveCssVar(page, "--green-600", "backgroundColor");
-    expectApproxRgb(loginButtonBg, green600);
+    const loginButton = await page.getByTestId("button-login").evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, fg: cs.color };
+    });
+    expect(loginButton).toEqual({ bg: "rgb(244, 248, 241)", fg: "rgb(23, 102, 27)" });
 
     // Focus-state AA contrast (review finding 1's fix): SelectItem
     // (ui/select.tsx) and DropdownMenuSubTrigger (ui/dropdown-menu.tsx)

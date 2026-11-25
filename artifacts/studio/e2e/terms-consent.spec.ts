@@ -39,7 +39,7 @@ test.describe("terms consent (unauthenticated)", () => {
       const box = page.getByTestId("checkbox-accept-terms");
       await expect(box).toBeVisible({ timeout: T });
       await expect(box).not.toBeChecked();
-      await expect(page.locator("label[for='accept-terms']")).toHaveText("I agree to the Terms of Service and the Privacy Notice (FERPA, GDPR)");
+      await expect(page.locator("label[for='accept-terms']")).toHaveText("I agree to the Terms of Service (opens in a new tab) and the Privacy Notice (opens in a new tab) (FERPA, GDPR)"); // CSI-1: each link announces the new tab
       await page.getByTestId("input-email").fill(newEmail("box"));
       await page.getByTestId("input-password").fill(PASSWORD);
       await expect(page.getByTestId(button)).toBeDisabled();
@@ -101,7 +101,12 @@ test.describe("one-time log-out (B4) and terms_required (B3)", () => {
 
     makeTermsStale(email);
     await page.goto("/");
-    await expect(page).toHaveURL(/\/login$/, { timeout: T });
+    // CSI-1: signed-out `/` renders the cover sign-in page in place (no redirect to /login).
+    // The behaviour guarded is unchanged: the stale session is not honoured.
+    await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: T });
+    await expect(page.getByTestId("mode-login")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("text-user-email")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/$/);
 
     const refused = await page.request.post("/api/auth/login", { data: { email, password: PASSWORD } });
     expect(refused.status()).toBe(403);
