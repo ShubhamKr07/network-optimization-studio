@@ -8,7 +8,7 @@ import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "../wa
 import { logger } from "../lib/logger.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
-import { buildRequest, NO_CONTEXT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
+import { buildRequest, NO_CONTEXT, SYSTEM_PROMPT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
 import { answerQuestion, CLAIM_REMOVED_NOTICE, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
@@ -291,6 +291,12 @@ describe("buildRequest", () => {
     const text = (contextSummary: string) => ((buildRequest({ ...base, contextSummary }).messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
     expect(text("Tab: output-map")).toBe(`${NO_CONTEXT}\n\nStudent message: q`);
     expect(text(" · Scenario: Baseline · not solved yet")).toBe("Student context:  · Scenario: Baseline · not solved yet\n\nStudent message: q");
+  });
+
+  // WQF-A4: the example number is made up (plan P4); the value check reads the separated form.
+  it("asks for thousands separators, the context's units, and $ only for money", () => {
+    expect(SYSTEM_PROMPT).toContain("- Write numbers of four or more digits with thousands separators, for example 12,345,678. Keep the units the Student context uses, such as demand-mi, mi or tons, and use $ only for money values.");
+    expect(extractNumbers("12,345,678 demand-mi")).toEqual([12345678]);
   });
 
   it("declares the three tools sorted by name, with tool_choice auto", () => {

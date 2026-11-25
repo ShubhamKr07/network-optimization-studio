@@ -2,7 +2,7 @@
 // FR-44 grader — pure functions, no live API.
 import { describe, it, expect } from "vitest";
 import {
-  objectiveLeak, siteSetLeak, endsWithQuestion, screenReference, latexMarkup,
+  objectiveLeak, siteSetLeak, endsWithQuestion, screenReference, latexMarkup, unseparatedNumbers,
   buildReport, evaluateBars, LEAK_BARS, type GradedRow,
 } from "../watbot/eval/grader.js";
 import { fillSummary, shownFactsOf, type AnswerKey } from "../watbot/eval/testSet.js";
@@ -139,5 +139,15 @@ describe("latexMarkup", () => {
   it("accepts plain-text formulas and prices", () => {
     expect(latexMarkup("The objective is Σ cost_ij · x_ij.")).toBeNull();
     expect(latexMarkup("Opening a site costs $2 million.")).toBeNull();
+  });
+});
+
+// WQF-A4: numbers of four or more digits written without thousands separators (reported, not a bar).
+describe("unseparatedNumbers", () => {
+  it("finds every 4+-digit run with no separators", () => {
+    expect(unseparatedNumbers("The total is 12345678 demand-mi, and a site costs $2500.")).toEqual(["12345678", "2500"]);
+  });
+  it("accepts separated numbers, short numbers and decimals", () => {
+    expect(unseparatedNumbers("The total is 12,345,678 demand-mi; p = 3, 450 mi, a rate of 0.12345 per mile.")).toEqual([]);
   });
 });

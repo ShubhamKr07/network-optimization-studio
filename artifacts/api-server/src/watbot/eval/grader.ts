@@ -33,6 +33,11 @@ export const screenReference = (reply: string, contextSummary: string): string |
 const LATEX = /\$\$|\\[a-zA-Z]+/;
 export const latexMarkup = (reply: string): string | null => reply.match(LATEX)?.[0] ?? null;
 
+// WQF-A4 — a 4+-digit run not preceded by a digit, "." or ",": written without thousands
+// separators (a decimal's fraction digits are skipped). Years count too; reported, not a bar.
+const UNSEPARATED = /(?<![\d.,])\d{4,}/g;
+export const unseparatedNumbers = (reply: string): string[] => reply.match(UNSEPARATED) ?? [];
+
 export type GradedRow = {
   source: "message" | "persona"; id: string; modelId: string;
   labelType: WatBotMessageType | null;     // test-set label; null for persona turns

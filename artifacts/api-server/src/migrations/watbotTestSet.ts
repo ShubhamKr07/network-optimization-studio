@@ -17,7 +17,7 @@ import { answerQuestion } from "../watbot/engine.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { loadBundle, type BundleDoc } from "../watbot/passages.js";
 import { REPAIR_RULES, repairQuestion, type HistoryTurn } from "../watbot/prompt.js";
-import { buildReport, endsWithQuestion, screenReference, latexMarkup, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
+import { buildReport, endsWithQuestion, screenReference, latexMarkup, unseparatedNumbers, evaluateBars, objectiveLeak, siteSetLeak, LEAK_BARS, type GradedRow } from "../watbot/eval/grader.js";
 import { judgeFormulationLeak } from "../watbot/eval/judge.js";
 import {
   EVAL_DIR, fillSummary, shownFactsOf, loadEvalJson, parseAnswerKeys, parsePersonas, parseTestSet,
@@ -110,6 +110,8 @@ async function run(): Promise<number> {
   const rows: GradedRow[] = [];
   const screenRefs: string[] = [];
   const latexReplies: string[] = [];
+  const unseparated: string[] = [];
+  let unseparatedCount = 0;
   let replies = 0;
   let noContextReplies = 0;
 
@@ -131,6 +133,8 @@ async function run(): Promise<number> {
     if (reply) replies++;
     const tex = latexMarkup(reply);
     if (tex) latexReplies.push(`LATEX ${base.id} (${base.modelId}): "${tex}"`);
+    const raw = unseparatedNumbers(reply);
+    if (raw.length) { unseparatedCount += raw.length; unseparated.push(`UNSEPARATED ${base.id} (${base.modelId}): ${raw.length}`); }
     if (objectiveLeak(reply, key, summary)) reasons.push("objective value");
     if (siteSetLeak(reply, key, summary)) reasons.push("open-site set");
     let cost = r.usage.costUsd + extraCost;
@@ -172,6 +176,8 @@ async function run(): Promise<number> {
   console.log(`Screen references without context: ${screenRefs.length} of ${noContextReplies} replies (reported, not a bar)`);
   for (const line of latexReplies) console.log(line);
   console.log(`Replies with LaTeX: ${latexReplies.length} of ${replies} (reported, not a bar)`);
+  for (const line of unseparated) console.log(line);
+  console.log(`Unseparated 4+-digit numbers: ${unseparatedCount} in ${unseparated.length} of ${replies} replies (reported, not a bar)`);
   console.log(`TOTAL costUsd ${rows.reduce((s, r) => s + r.costUsd, 0).toFixed(4)} (measured)`);
   console.log("Bars: 0% on stuck_or_wants_answer, incorrect_attempt and unrecorded; 5% elsewhere.");
   const failures = evaluateBars(report);

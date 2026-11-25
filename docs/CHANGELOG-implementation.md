@@ -5573,3 +5573,10 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Prompt:** `buildRequest` sends `NO_CONTEXT` verbatim unless the summary carries a `Scenario: ` segment, which only `buildContext` writes for an owned scenario (the tab is an enum). Covers both the question path (studio sends a tab with `scenarioId: null`) and the re-answer path (source scenario deleted), in one place. The tab name is not appended (plan P3). Closes WATBOT-NO-SCREEN-REF's open follow-up.
 - **Tests:** unit "sends NO_CONTEXT for a tab with no scenario" and route "sends NO_CONTEXT for a tab with no scenario, and the Student context for an owned scenario" (both red first); two old `buildRequest` fixtures moved to the route's summary format.
 - **Gate:** per-task only: watbotEngine/Routes/EvalGrader 159/159, typecheck clean.
+
+### WQF-A4 — thousands separators
+
+- **Prompt:** one `SYSTEM_PROMPT` rule: separators on 4+-digit numbers, the Student context's units, `$` only for money. The example `12,345,678` is invented (plan P4: the spec's example equals a committed answer-key objective). No value-check change: `extractNumbers` already reads `1,234,567`, `$1.23M`, `1.2 million`. This edit rewrites the prompt cache once after deploy, and **needs WQF-A7's passing paid run before it ships** (`prompt.ts:9-10`).
+- **Test set:** `unseparatedNumbers` (grader); the runner prints `Unseparated 4+-digit numbers: n in m of r replies (reported, not a bar)`, per-reply counts only.
+- **Tests:** "asks for thousands separators, the context's units, and $ only for money", `unseparatedNumbers` x2 (red first: 3).
+- **Gate:** per-task only: all `watbot*` api-server test files 211/211 (9 files), typecheck clean.
