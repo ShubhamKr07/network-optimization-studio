@@ -14,7 +14,7 @@ import {
   inflight, isAvailable, monthlySpendUsd,
 } from "../watbot/limits.js";
 import { WATBOT_ERROR_CODES } from "../watbot/errors.js";
-import { REPAIR_LABELS } from "../watbot/prompt.js";
+import { NO_CONTEXT, REPAIR_LABELS } from "../watbot/prompt.js";
 import { CLAIM_REMOVED_NOTICE, FAILED_NOTICE, STOPPED_NOTICE, setTransientBackoffForTests } from "../watbot/engine.js";
 import { logger } from "../lib/logger.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
@@ -554,6 +554,26 @@ describe("watbot routes", () => {
     expect((await request(app).post("/api/watbot/reports").set("Cookie", cookie).send({ messageId: first!.id, reason: "other" })).status).toBe(201);
     const [report] = await db.select().from(watbotReportsTable).where(eq(watbotReportsTable.messageId, first!.id));
     expect(report!.context?.tab).toBe("output-map");
+  });
+
+  // WQF-A3: the studio sends a tab with scenarioId null whenever no scenario is selected.
+  it("sends NO_CONTEXT for a tab with no scenario, and the Student context for an owned scenario", async () => {
+    const seen: Anthropic.MessageStreamParams[] = [];
+    const inner = scriptedClient("What would change with p = 1?");
+    useClient({ messages: { stream: (params, opts) => { seen.push(params); return inner.messages.stream(params, opts); } } });
+    const cookie = await registerAndGetCookie();
+    const [sc] = await db.insert(scenariosTable).values({ name: "Baseline", userId: lastUserId(), modelId: "p-median-us", inputs: {} }).returning();
+    try {
+      const id = await newConversation(cookie);
+      const ask = (context: object) => request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie).send({ question: "q", context });
+      expect((await ask({ tab: "output-map", scenarioId: null })).text).toContain("event: done");
+      expect((await ask({ tab: "output-map", scenarioId: sc!.id })).text).toContain("event: done");
+      const lastTurn = (p: Anthropic.MessageStreamParams) => ((p.messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
+      expect(lastTurn(seen[0]!)).toBe(`${NO_CONTEXT}\n\nStudent message: q`);
+      expect(lastTurn(seen[1]!)).toMatch(/^Student context: Tab: output-map · Scenario: Baseline · /);
+    } finally {
+      await db.delete(scenariosTable).where(eq(scenariosTable.id, sc!.id));
+    }
   });
 
   it("rejects an unknown context tab and ids past int4 without a 500", async () => {

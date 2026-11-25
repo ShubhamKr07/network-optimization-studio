@@ -257,7 +257,7 @@ describe("providerErrorFields", () => {
 
 describe("buildRequest", () => {
   it("puts the bundle in cached, citation-enabled content documents and history as plain text", () => {
-    const req = buildRequest({ model: "claude-haiku-5-5", bundle, fixedQuestions: ["What decision is this model making?"], history: [{ role: "student", text: "hi" }, { role: "tutor", text: "hello" }], contextSummary: "Output Map · Baseline · p = 4", question: "Why?" });
+    const req = buildRequest({ model: "claude-haiku-5-5", bundle, fixedQuestions: ["What decision is this model making?"], history: [{ role: "student", text: "hi" }, { role: "tutor", text: "hello" }], contextSummary: "Tab: output-map · Scenario: Baseline · p = 4", question: "Why?" });
     const first = req.messages[0]!.content as Anthropic.ContentBlockParam[];
     const doc = first[0] as Anthropic.DocumentBlockParam;
     expect(doc.citations).toEqual({ enabled: true });
@@ -266,7 +266,7 @@ describe("buildRequest", () => {
     expect(intro.cache_control).toEqual({ type: "ephemeral" });
     expect(intro.text).toContain("Q1. What decision is this model making?");
     const last = req.messages[req.messages.length - 1]!;
-    expect(JSON.stringify(last)).toContain("Output Map · Baseline · p = 4");
+    expect(JSON.stringify(last)).toContain("Student context: Tab: output-map · Scenario: Baseline · p = 4");
     expect(JSON.stringify(req.messages)).not.toContain('"citations":[');
   });
 
@@ -274,14 +274,23 @@ describe("buildRequest", () => {
   it("says so when no Student context was sent, without touching the cached prefix", () => {
     const base = { model: "m", bundle, fixedQuestions: [], history: [], question: "What is p-median?" };
     const none = buildRequest({ ...base, contextSummary: "" });
-    const some = buildRequest({ ...base, contextSummary: "Tab: Output Map" });
+    const some = buildRequest({ ...base, contextSummary: "Tab: output-map · Scenario: Baseline · p = 4" });
     const text = (r: typeof none) => ((r.messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
     expect(text(none)).toBe(`${NO_CONTEXT}\n\nStudent message: What is p-median?`);
     expect(NO_CONTEXT).toMatch(/^Student context: none\./);
-    expect(text(some)).toBe("Student context: Tab: Output Map\n\nStudent message: What is p-median?");
+    expect(text(some)).toBe("Student context: Tab: output-map · Scenario: Baseline · p = 4\n\nStudent message: What is p-median?");
     expect(none.system).toEqual(some.system);
     expect(none.tools).toEqual(some.tools);
     expect(none.messages.slice(0, -1)).toEqual(some.messages.slice(0, -1));
+  });
+
+  // WQF-A3: an open tab with no scenario (none selected, or a re-answer whose scenario was deleted)
+  // is no context; with a scenario, the summary is context whether or not a tab is open.
+  it("sends NO_CONTEXT for a tab with no scenario", () => {
+    const base = { model: "m", bundle, fixedQuestions: [], history: [], question: "q" };
+    const text = (contextSummary: string) => ((buildRequest({ ...base, contextSummary }).messages.at(-1)!.content as Anthropic.TextBlockParam[])[0]!).text;
+    expect(text("Tab: output-map")).toBe(`${NO_CONTEXT}\n\nStudent message: q`);
+    expect(text(" · Scenario: Baseline · not solved yet")).toBe("Student context:  · Scenario: Baseline · not solved yet\n\nStudent message: q");
   });
 
   it("declares the three tools sorted by name, with tool_choice auto", () => {

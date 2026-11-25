@@ -5567,3 +5567,9 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Why:** a mislabelled request (e.g. a full formulation: no 4+-digit number, no facility name) could pass uncited under the old blanket exemption.
 - **Tests:** "drops every uncited block after the first in an off-topic answer", "forwards a first uncited off-topic block of 25 words and drops one of 26", "a too-long first block spends the exemption…" (red before: 3), "a short line before the decline does not spend the exemption (plan P2)" (guard, green both sides).
 - **Gate:** per-task only: watbotEngine/Routes/EvalGrader 157/157, typecheck clean.
+
+### WQF-A3 — a tab without a scenario is no context
+
+- **Prompt:** `buildRequest` sends `NO_CONTEXT` verbatim unless the summary carries a `Scenario: ` segment, which only `buildContext` writes for an owned scenario (the tab is an enum). Covers both the question path (studio sends a tab with `scenarioId: null`) and the re-answer path (source scenario deleted), in one place. The tab name is not appended (plan P3). Closes WATBOT-NO-SCREEN-REF's open follow-up.
+- **Tests:** unit "sends NO_CONTEXT for a tab with no scenario" and route "sends NO_CONTEXT for a tab with no scenario, and the Student context for an owned scenario" (both red first); two old `buildRequest` fixtures moved to the route's summary format.
+- **Gate:** per-task only: watbotEngine/Routes/EvalGrader 159/159, typecheck clean.

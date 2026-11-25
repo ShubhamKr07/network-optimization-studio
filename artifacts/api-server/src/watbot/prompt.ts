@@ -104,6 +104,11 @@ export type HistoryTurn = { role: "student" | "tutor"; text: string };
 // tutor described a screen it never saw ("Looking at your Output Map").
 export const NO_CONTEXT = "Student context: none. The student did not share their screen, so do not refer to their map, form or results.";
 
+// WQF-A3 — only an owned scenario makes Student context. buildContext (routes/watbot.ts) writes
+// "Tab: <tab> · Scenario: <name> · …"; the tab is an OpenAPI enum, so a tab-only summary (no
+// scenario selected, or a re-answer whose scenario was deleted) never carries this segment.
+const hasScenario = (summary: string) => /(?:^|· )Scenario: /.test(summary);
+
 export function buildRequest(input: {
   model: string; bundle: BundleDoc[]; fixedQuestions: string[];
   history: HistoryTurn[]; contextSummary: string; question: string;
@@ -132,7 +137,7 @@ export function buildRequest(input: {
       content: [{ type: "text", text: h.text, ...(last ? { cache_control: { type: "ephemeral" as const } } : {}) }],
     });
   });
-  const ctx = input.contextSummary ? `Student context: ${input.contextSummary}\n\n` : `${NO_CONTEXT}\n\n`;
+  const ctx = hasScenario(input.contextSummary) ? `Student context: ${input.contextSummary}\n\n` : `${NO_CONTEXT}\n\n`;
   messages.push({ role: "user", content: [{ type: "text", text: `${ctx}Student message: ${input.question}` }] });
   return {
     model: input.model,
