@@ -171,6 +171,8 @@ test.describe("Bundle 3 — book-cover design system", () => {
     // color ≈ green-600. --primary is an HSL triple (82 52% 33%), meant to
     // represent the same color as --green-600's hex — resolved via the real
     // browser on both sides rather than hand-converting HSL ourselves.
+    // Tick the (mandatory) terms box so the measured colour is the enabled button students click.
+    await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
     const loginButtonBg = await page.getByTestId("button-login").evaluate((el) => getComputedStyle(el).backgroundColor);
     const green600 = await resolveCssVar(page, "--green-600", "backgroundColor");
     expectApproxRgb(loginButtonBg, green600);

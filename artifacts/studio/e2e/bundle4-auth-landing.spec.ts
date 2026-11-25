@@ -84,6 +84,7 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     await page.goto("/login");
     await page.getByTestId("input-email").fill(`nobody-${Date.now()}@test.com`);
     await page.getByTestId("input-password").fill("wrongpassword1");
+    await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
     await page.getByTestId("button-login").click();
 
     await expect(page.getByTestId("alert-login-error")).toBeVisible({ timeout: HEADER_TIMEOUT });

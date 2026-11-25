@@ -98,5 +98,8 @@ describe("DELETE /api/auth/account (route)", () => {
     const res = await del({ password: "correcthorse1" });
     expect(res.status).toBe(429);
     expect(mockDeleteAccountData).not.toHaveBeenCalled();
-  });
+    // 21 real argon2 verifications (~0.1-0.3 s each idle) timed out at the 15 s
+    // default under heavy load during B integration; 60 s is headroom, not a fix
+    // for slowness (it passed 8/8 alone).
+  }, 60_000);
 });

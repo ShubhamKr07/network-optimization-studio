@@ -382,6 +382,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
         await page.goto("/login");
         await page.getByTestId("input-email").fill(email);
         await page.getByTestId("input-password").fill("correcthorse1");
+        await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
         await page.getByTestId("button-login").click();
         await expect(page.getByTestId("text-user-email")).toBeVisible({ timeout: T });
         await expectTheme(page, want, "Landing after logging in again");
@@ -993,6 +994,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     // Alert (Q9: `dark:border-destructive`): trigger the real login error.
     await page.getByTestId("input-email").fill("nobody@example.com");
     await page.getByTestId("input-password").fill("wrong-password-1");
+    await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
     await page.getByTestId("button-login").click();
     const alert = page.getByTestId("alert-login-error");
     await expect(alert).toBeVisible({ timeout: T });
