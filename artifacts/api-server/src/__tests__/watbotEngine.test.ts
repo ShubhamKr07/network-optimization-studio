@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Anthropic from "@anthropic-ai/sdk";
 import { WorkloadIdentityError } from "@anthropic-ai/sdk/lib/credentials/types";
-import { keepUncitedBlock, passesValueCheck } from "../watbot/citations.js";
+import { keepUncitedBlock, MAX_DECLINE_WORDS, MIN_CLAIM_WORDS, passesValueCheck, wordCount } from "../watbot/citations.js";
 import { bundleTokens, costUsd, reservationUsd } from "../watbot/cost.js";
 import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "../watbot/errors.js";
 import { logger } from "../lib/logger.js";
@@ -337,6 +337,31 @@ describe("answerQuestion", () => {
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);
     const r = await answerQuestion(baseInput(client));
     expect(r).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1, blocks: [] });
+  });
+  // WQF-A2: the exemption covers one decline of at most 25 words, never a whole uncited answer.
+  const LONG_UNCITED = "Minimize the total of cost times flow over every lane, subject to supply at each plant and demand at each customer being met.";
+  const words = (n: number) => `${Array(n).fill("decline").join(" ")}.`;
+  const offTopic = (...texts: string[]) => fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }),
+    { events: texts.flatMap((t, i) => textBlock(i, t, [])), final: { stop_reason: "end_turn" as const } }]);
+  it("drops every uncited block after the first in an off-topic answer", async () => {
+    const events: EngineEvent[] = [];
+    const r = await answerQuestion(baseInput(offTopic(DECLINE, LONG_UNCITED), { emit: (e) => events.push(e) }));
+    expect(wordCount(LONG_UNCITED)).toBeGreaterThanOrEqual(MIN_CLAIM_WORDS); // non-vacuity: claim-length, not FR-17-short
+    expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 0 });
+    expect(events.filter((e) => e.type === "notice")).toEqual([{ type: "notice", kind: "claim_removed" }]);
+  });
+  it("forwards a first uncited off-topic block of 25 words and drops one of 26", async () => {
+    expect(wordCount(words(25))).toBe(MAX_DECLINE_WORDS);
+    expect((await answerQuestion(baseInput(offTopic(words(25))))).blocks).toHaveLength(1);
+    expect(await answerQuestion(baseInput(offTopic(words(26))))).toMatchObject({ blocks: [], claimsRemoved: 1 });
+  });
+  it("a too-long first block spends the exemption, so the decline after it is dropped too", async () => {
+    expect(await answerQuestion(baseInput(offTopic(words(26), DECLINE)))).toMatchObject({ blocks: [], claimsRemoved: 2 });
+  });
+  it("a short line before the decline does not spend the exemption (plan P2)", async () => {
+    const r = await answerQuestion(baseInput(offTopic("Sorry.", DECLINE)));
+    expect(r.blocks.map((b) => b.text)).toEqual(["Sorry.", DECLINE]);
   });
 
   // WQF-A1: the two reasons a block is dropped are counted apart; one notice covers the answer.

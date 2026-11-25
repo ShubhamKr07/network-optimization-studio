@@ -5560,3 +5560,10 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Test set:** a per-type `valuesBlocked` column beside `claimRemoved`; the smoke CLI prints `blocked`.
 - **Tests:** engine (4 changed expectations; new "counts an uncited claim and a blocked value apart…", "counts an uncited block that also carries an unseen value under both reasons", "words the drop notice for both reasons"), grader ("reports the values-blocked rate apart…"), route (value-only drop stores the notice and logs counts), studio hook ("shows the drop notice in the server's wording"). Red before: 9 api-server + 1 studio failures; green after.
 - **Gate:** per-task only (lead gates): watbotEngine/EvalGrader/Routes files green (routes 40/40 alone; one load-flake sighting of the re-answer test in the 3-file run, passed alone), studio hook + messages files 27/27, `tsc --build` + api-server typecheck clean.
+
+### WQF-A2 — off-topic exemption capped at one decline of ≤ 25 words
+
+- **Engine:** in an `off_topic` answer, only the first block that would otherwise be dropped as uncited is exempt, and only at ≤ `MAX_DECLINE_WORDS` (25) whitespace-separated words. It spends the exemption either way. Short FR-17 blocks do not spend it (plan P2). Every later uncited block is dropped. The value check still applies to every block. No buffering: decided per block as it finishes.
+- **Why:** a mislabelled request (e.g. a full formulation: no 4+-digit number, no facility name) could pass uncited under the old blanket exemption.
+- **Tests:** "drops every uncited block after the first in an off-topic answer", "forwards a first uncited off-topic block of 25 words and drops one of 26", "a too-long first block spends the exemption…" (red before: 3), "a short line before the decline does not spend the exemption (plan P2)" (guard, green both sides).
+- **Gate:** per-task only: watbotEngine/Routes/EvalGrader 157/157, typecheck clean.

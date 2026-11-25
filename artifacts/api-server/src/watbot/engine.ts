@@ -4,7 +4,7 @@ import { WATBOT_MESSAGE_TYPES, type WatBotBlock, type WatBotCitation, type WatBo
 import type { Tutor } from "@workspace/dataset-schema";
 import type { WatBotClient } from "./client.js";
 import { buildRequest, FORCE_RECORD_MODELS, FORCE_RECORD_TYPE, MAX_ROUNDS, REPLY_RULES, SEARCH_LIMIT_RESULT, excludedTypeResult, type HistoryTurn } from "./prompt.js";
-import { keepUncitedBlock, mapCitation, passesValueCheck } from "./citations.js";
+import { keepUncitedBlock, mapCitation, MAX_DECLINE_WORDS, passesValueCheck, wordCount } from "./citations.js";
 import { costUsd } from "./cost.js";
 import { classifyAnthropicError, providerErrorFields, retryAfterMs } from "./errors.js";
 import { logger } from "../lib/logger.js";
@@ -97,6 +97,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   let searches = 0;
   let requeues = 0;
   let bonus = 0;       // R3: a rejected round does not count against MAX_ROUNDS (once per question)
+  let declineUsed = false; // WQF-A2: the off-topic exemption covers one block per answer
   let reforce = false; // WATBOT-FB R3: a rejected (ruled-out) type forces the next round to record again
 
   const addUsage = (u: Anthropic.Usage) => {
@@ -144,10 +145,17 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         const b = open.get(ev.index);
         if (!b || !b.text.trim()) continue;
         open.delete(ev.index);
-        // Kept when cited, or an uncited question / short connective (FR-17) or the off-topic
-        // decline, which is uncited by design; and, cited or not, when it carries no unseen value
-        // or site (D20, revised 2026-11-22). WQF-A1: each reason has its own counter; one notice.
-        const uncited = !(b.citations.length > 0 || keepUncitedBlock(b.text) || out.messageType === "off_topic");
+        // Kept when cited, or an uncited question / short connective (FR-17); and, cited or not,
+        // when it carries no unseen value or site (D20, revised 2026-11-22). WQF-A1: each reason
+        // has its own counter; one notice.
+        let uncited = b.citations.length === 0 && !keepUncitedBlock(b.text);
+        // WQF-A2: in an off-topic answer only the first block that would otherwise be dropped as
+        // uncited may pass, as the one-line decline, and only at MAX_DECLINE_WORDS or fewer. It
+        // spends the exemption either way; the value check below still applies.
+        if (uncited && out.messageType === "off_topic" && !declineUsed) {
+          declineUsed = true;
+          uncited = wordCount(b.text) > MAX_DECLINE_WORDS;
+        }
         const blocked = !passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
         const firstDrop = out.claimsRemoved + out.valuesBlocked === 0;
         if (uncited) out.claimsRemoved++;
