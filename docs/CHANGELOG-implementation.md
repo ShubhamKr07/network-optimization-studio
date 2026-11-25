@@ -5607,3 +5607,4 @@ Owner approved the spend. Run on `wqf-a` at `f559ebab` (A1–A6), dev key, local
 | off_topic | 20 | 100% | 0% | 0% | 0% | 0% |
 
 Reported, not bars: screen references without context 0 of 64; replies with LaTeX 0 of 161; unseparated 4+-digit numbers 0 in 161 replies. Readings: A2's cap keeps every off-topic decline (0% empty, 0% removed). A1's split shows the high drop rate is mostly uncited text (87–98% of replies lose at least one uncited block), with the value check also firing on 11–24%; that is the input to the next prompt decision, not a regression. Correct-attempt "ends with a question" is 6% (2% on the previous run).
+- **Owner decision (2026-11-25, Lavish):** run accepted; open a follow-up on the high uncited-drop rate (87–98% of replies lose at least one uncited block) — a prompt change, measured by another paid run. Not part of this bundle.
