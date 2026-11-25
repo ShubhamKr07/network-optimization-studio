@@ -48,6 +48,7 @@ const ALLOWED_NO_ONERROR: { file: string; call: string; reason: string }[] = [
   { file: "components/workspace/super/SuperRoadDistancesDialog.tsx", call: "fetchRoad.mutate(", reason: "renders describeRoadError(fetchRoad.error) in super-road-error when isError" },
   { file: "pages/auth/Login.tsx", call: "loginUser.mutate(", reason: "renders alert-login-error when isError" },
   { file: "pages/auth/Register.tsx", call: "registerUser.mutate(", reason: "renders alert-register-error from registerUser.error" },
+  { file: "components/DeleteAccountDialog.tsx", call: "deleteAccount.mutate(", reason: "renders alert-delete-error from describeWriteError(deleteAccount.error) when isError" },
 ];
 
 // Ignore commented-out code so a `// foo.mutate(` note is not an offender,

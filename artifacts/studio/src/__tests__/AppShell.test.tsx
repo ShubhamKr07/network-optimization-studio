@@ -33,6 +33,8 @@ vi.mock("@/components/FeedbackWidget", () => ({
   FeedbackWidget: () => <div data-testid="feedback-button" />,
 }));
 
+vi.mock("@/components/AccountLinks", () => ({ AccountLinks: () => <div data-testid="account-links" /> }));
+
 // COSM-5 — the real component needs canvas APIs this suite does not provide
 // (no ctx/matchMedia/rAF mocks here); NetworkBackground.test.tsx owns those.
 vi.mock("@/components/NetworkBackground", () => ({
@@ -296,5 +298,15 @@ describe("AppShell layout", () => {
   it("gives the log-out button a hover-highlight class", () => {
     renderShell(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
     expect(screen.getByTestId("button-logout").className).toContain("hover:bg-white/10");
+  });
+
+  it("puts the account links in the home footer only, never in the header beside Log out", () => {
+    const { unmount } = renderShell(<AppShell userEmail="s@example.test" hero><div /></AppShell>);
+    const footer = screen.getByTestId("homepage-credit-footer");
+    expect(footer).toContainElement(screen.getByTestId("account-links"));
+    expect(document.querySelector("header")).not.toContainElement(screen.getByTestId("account-links"));
+    unmount();
+    renderShell(<AppShell userEmail="s@example.test"><div /></AppShell>);
+    expect(screen.queryByTestId("account-links")).toBeNull();
   });
 });

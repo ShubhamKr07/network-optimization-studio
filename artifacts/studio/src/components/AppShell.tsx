@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AppFooter } from "@/components/AppFooter";
 import coverUrl from "@/assets/book-cover.jpg";
 import { DeveloperCredit } from "@/components/DeveloperCredit";
+import { AccountLinks } from "@/components/AccountLinks";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { NetworkBackground } from "@/components/NetworkBackground";
 import { resetUser } from "@/lib/analytics";
@@ -114,6 +115,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
             <footer data-testid="homepage-credit-footer" className="relative border-t bg-background px-6 py-3 text-center" style={{ borderColor: "var(--line)" }}>
               <FeedbackWidget />
               <DeveloperCredit />
+              <AccountLinks />
             </footer>
           )}
         </main>
