@@ -1318,6 +1318,16 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
     expect(screen.getByTestId("button-save")).toBeDisabled();
   });
 
+  it("WQF-C2: Delivery Costs' Save sits in the table toolbar and no toolbar row renders; Optimization Parameters keeps the row", () => {
+    renderDeliveryWorkspace();
+    fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+    expect(within(screen.getByTestId("delivery-costs-tab-toolbar")).getByTestId("button-save")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-toolbar-row")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
+    expect(within(screen.getByTestId("workspace-toolbar-row")).getByTestId("button-save")).toBeInTheDocument();
+  });
+
   it("adding a delivery cost override and saving PATCHes the new entry into inputs.laneCostOverrides", () => {
     renderDeliveryWorkspace();
     fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));

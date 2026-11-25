@@ -272,18 +272,22 @@ describe("Workspace — super-model input tabs (SM-7)", () => {
     expect(statuses.every(s => s.status !== "active")).toBe(true);
   });
 
-  it("QFX-1: Import network + Export ▾ sit right of Save on every super input tab, never in the header", () => {
+  it("QFX-1 / WQF-C2: Save, Import network and Export ▾ stay one cluster on every super input tab — beside Filter on table tabs, in the toolbar row elsewhere", () => {
     renderWorkspace();
     for (const id of ["super-header-import", "super-header-export", "super-header-export-csv", "super-header-export-xlsx"]) {
       expect(screen.queryByTestId(id)).toBeNull();
     }
+    const TABLE_TABS = ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "transportCosts"];
     for (const tab of ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"]) {
       fireEvent.click(screen.getByTestId(`sidebar-input-${tab}`));
-      const row = screen.getByTestId("workspace-toolbar-row");
-      const trio = [...row.querySelectorAll("[data-testid]")]
+      const cluster = screen.getByTestId("workspace-save-cluster");
+      const trio = [...cluster.querySelectorAll("[data-testid]")]
         .map(e => e.getAttribute("data-testid"))
         .filter(id => id === "button-save" || id === "super-toolbar-import" || id === "super-toolbar-export");
       expect(trio, tab).toEqual(["button-save", "super-toolbar-import", "super-toolbar-export"]);
+      const inTable = TABLE_TABS.includes(tab);
+      expect(cluster.closest('[data-testid="data-table-save-slot"]') !== null, `${tab} in table`).toBe(inTable);
+      expect(screen.queryByTestId("workspace-toolbar-row") !== null, `${tab} toolbar row`).toBe(!inTable);
     }
     expect(screen.getByTestId("super-toolbar-export")).toHaveTextContent("Export");
     expect(screen.getByTestId("super-readiness-ok")).toBeInTheDocument();   // last tab is Optimization Parameters (SM-9, unchanged)

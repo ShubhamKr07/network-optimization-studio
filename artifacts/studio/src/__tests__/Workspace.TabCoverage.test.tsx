@@ -122,7 +122,7 @@ vi.mock("@workspace/api-client-react", () => ({
   getPrecheckScenarioQueryKey: vi.fn((id: number) => ["precheck", id]),
 }));
 
-import { Workspace, inputEntriesForModel } from "@/pages/Workspace";
+import { Workspace, inputEntriesForModel, SAVE_BESIDE_FILTER_TABS } from "@/pages/Workspace";
 import { useGetScenario, useListScenarios, useGetDataset, useListModels } from "@workspace/api-client-react";
 
 const mockUseGetScenario = vi.mocked(useGetScenario);
@@ -167,11 +167,26 @@ const FLOWS: TabCoverageEntry = { sidebarId: "flows", tabTestId: "button-downloa
 const COST_SUMMARY: TabCoverageEntry = { sidebarId: "cost-summary", tabTestId: "button-download-cost-summary" };
 const SERVICE_STATS: TabCoverageEntry = { sidebarId: "service-stats", tabTestId: "button-download-service-stats" };
 
-function runTabCoverage(inputs: TabCoverageEntry[], outputs: TabCoverageEntry[]) {
+// WQF-C2 — where the shared Save rendered: beside Filter in a DataTable, in the toolbar row, or inline (Input Map Layers row).
+function saveLocation(): "table" | "row" | "inline" | "none" {
+  const save = screen.queryByTestId("button-save");
+  if (!save) return "none";
+  if (save.closest('[data-testid="data-table-save-slot"]')) return "table";
+  if (save.closest('[data-testid="workspace-toolbar-row"]')) return "row";
+  return "inline";
+}
+
+function runTabCoverage(inputs: TabCoverageEntry[], outputs: TabCoverageEntry[], modelId?: string) {
   for (const { sidebarId, tabTestId } of inputs) {
     fireEvent.click(screen.getByTestId(`sidebar-input-${sidebarId}`));
     expect(screen.getByTestId(tabTestId)).toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-placeholder")).not.toBeInTheDocument();
+    // WQF-C2 — a listed tab must really mount a DataTable (else Save would vanish: "none"); every other
+    // tab keeps Save in the toolbar row. Input Map is skipped: its inline Save is not part of this change.
+    if (modelId && sidebarId !== "input-map") {
+      const expected = (SAVE_BESIDE_FILTER_TABS[modelId] ?? []).includes(sidebarId) ? "table" : "row";
+      expect(saveLocation(), `${modelId}/${sidebarId}`).toBe(expected);
+    }
   }
   for (const { sidebarId, tabTestId } of outputs) {
     fireEvent.click(screen.getByTestId(`sidebar-output-${sidebarId}`));
@@ -282,6 +297,7 @@ describe("Workspace tab coverage — p-median-us", () => {
         // already; re-asserting the negative here would just duplicate that
         // coverage).
       ],
+      "p-median-us",
     );
   });
 
@@ -379,6 +395,7 @@ describe("Workspace tab coverage — transport-coal", () => {
         // neither is in its outputGrids capability (Flows IS this model's
         // assignment view).
       ],
+      "transport-coal",
     );
   });
   // SCU-2.P3.4 (G-3) — Workspace now passes the canonical unit to FlowsTab, so
@@ -489,6 +506,7 @@ describe("Workspace tab coverage — two-echelon-gold-au", () => {
         // Flows (mine_to_refinery) and Customer Assignments
         // (refinery_to_customer), per C6.1's own design note.
       ],
+      "two-echelon-gold-au",
     );
   });
 
@@ -614,6 +632,7 @@ describe("Workspace tab coverage — two-echelon-jade-us", () => {
         // plant_to_warehouse/warehouse_to_customer legs map 1:1 onto Flows/
         // Customer Assignments respectively.
       ],
+      "two-echelon-jade-us",
     );
   });
 
@@ -712,6 +731,7 @@ describe("Workspace tab coverage — p-median-brazil", () => {
         COST_SUMMARY,
         SERVICE_STATS,
       ],
+      "p-median-brazil",
     );
   });
 
@@ -814,6 +834,7 @@ describe("Workspace tab coverage — max-coverage-us", () => {
         COST_SUMMARY,
         SERVICE_STATS,
       ],
+      "max-coverage-us",
     );
   });
 
@@ -923,6 +944,7 @@ describe("Workspace tab coverage — delivery-teaching-us", () => {
         COST_SUMMARY,
         SERVICE_STATS,
       ],
+      "delivery-teaching-us",
     );
 
     expect(screen.queryByTestId("sidebar-output-flows")).not.toBeInTheDocument();
@@ -954,4 +976,12 @@ describe("Workspace tab coverage — super-model", () => {
       "Demand", "Distances", "Transportation Costs", "Optimization Parameters",
     ]);
   });
+});
+
+it("WQF-C2: every SAVE_BESIDE_FILTER_TABS entry names a real sidebar tab of its model (31 pairs)", () => {
+  for (const [model, tabs] of Object.entries(SAVE_BESIDE_FILTER_TABS)) {
+    const ids = inputEntriesForModel(model as Parameters<typeof inputEntriesForModel>[0]).map(e => e.id);
+    for (const t of tabs) expect(ids, `${model}/${t}`).toContain(t);
+  }
+  expect(Object.values(SAVE_BESIDE_FILTER_TABS).flat()).toHaveLength(31);
 });

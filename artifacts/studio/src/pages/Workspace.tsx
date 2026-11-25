@@ -35,6 +35,7 @@ import {
 import { ArrowLeft, ChevronLeft, ChevronRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DownloadMenu } from "@/components/data-table/DownloadMenu";
+import { ToolbarSaveSlot } from "@/components/data-table/ToolbarSaveSlot";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -1286,6 +1287,21 @@ function warehouseStatusesFromInputs(
 // every one of them to real content.
 // SM-7 — the Super Model input tabs that edit `localInputs`.
 const SUPER_INPUT_TABS = ["input-map", "products", "plants", "warehouses", "customers", "plantProducts", "demand", "distances", "transportCosts", "optimization-parameters"];
+
+// WQF-C2 (spec Part C2) — input tabs whose Save renders today (`showToolbarSave`) AND whose content is a
+// DataTable: there Save moves into the table toolbar beside Filter. Derived per model/tab in
+// docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md ("C2 — model/tab pairs"). A tab not listed keeps
+// the toolbar row; Workspace.TabCoverage.test.tsx fails if a listed tab stops mounting a DataTable.
+export const SAVE_BESIDE_FILTER_TABS: Record<string, readonly string[]> = {
+  "p-median-us": ["customers", "warehouses", "distances"],
+  "p-median-brazil": ["customers", "warehouses", "distances"],
+  "max-coverage-us": ["customers", "warehouses", "distances"],
+  "delivery-teaching-us": ["customers", "warehouses", "deliveryCosts"],
+  "transport-coal": ["mines", "stations", "laneCosts"],
+  "two-echelon-gold-au": ["refineries", "customers", "distances"],
+  "two-echelon-jade-us": ["plants", "capability-matrix", "warehouses", "customers", "distances", "transportCosts"],
+  "super-model": ["products", "plants", "warehouses", "customers", "plantProducts", "demand", "transportCosts"],
+};
 
 export function inputEntriesForModel(modelId: StudioModelType): SidebarEntry[] {
   switch (modelId) {
@@ -2894,6 +2910,15 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
   const [superRoadOpen, setSuperRoadOpen] = useState(false);
   const [superFitKey, setSuperFitKey] = useState(0);
   const superIsEmpty = modelId === "super-model" && superTablesEmpty(localInputs);
+  // WQF-C2 — Save renders beside Filter instead of in the toolbar row. Never when no table is mounted:
+  // no scenario (first-run CTA), no draft yet, or an empty super network (SuperReadinessPanel replaces the table).
+  const saveBesideFilter =
+    showToolbarSave &&
+    currentScenario != null &&
+    localInputs != null &&
+    !superIsEmpty &&
+    activeView != null &&
+    (SAVE_BESIDE_FILTER_TABS[modelId] ?? []).includes(activeView.entity);
   // Replace overwrites the PERSISTED scenario, so the overwrite confirmation is decided from the saved inputs, never unsaved local edits.
   const superSavedIsEmpty = superTablesEmpty(currentScenario?.inputs as Record<string, unknown> | undefined);
   async function handleSuperExport(format: SuperFileFormat) {
@@ -4617,6 +4642,46 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
     inputDisabledReason: isBrowsingHistoryNow ? "Input exports reflect the current scenario" : undefined,
   };
 
+  // WQF-C2 — the Save cluster (unchanged content, moved verbatim from the toolbar row): rendered either in
+  // the toolbar row or, on SAVE_BESIDE_FILTER_TABS, inside the tab's DataTable via ToolbarSaveSlot.
+  const saveCluster = (
+    <div className="flex items-center gap-2" data-testid="workspace-save-cluster">
+      {(ordinaryDirty || lensDirty) && (
+        <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
+          Unsaved changes
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleSaveClick}
+        disabled={!saveEnabled || saveIsPending}
+        data-testid="button-save"
+        className={saveEnabled ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
+      >
+        <Save className="w-3.5 h-3.5 mr-1" />
+        {saveIsPending ? "Saving…" : saveLabel}
+      </Button>
+      {/* QFX-1 — super's whole-network Import / Export sit right of Save. Import is hidden while browsing
+          history (it writes); Export stays (user decision C2) and exports the latest SAVED network. */}
+      {modelId === "super-model" && currentScenario && (
+        <>
+          {!isBrowsingHistoryNow && (
+            <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
+              Import network
+            </Button>
+          )}
+          <DownloadMenu
+            label="Export"
+            testId="super-toolbar-export"
+            itemTestIds={{ csv: "super-toolbar-export-csv", json: "super-toolbar-export-json", xlsx: "super-toolbar-export-xlsx" }}
+            onDownload={format => void handleSuperExport(format)}
+          />
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-screen flex flex-col overflow-hidden" data-testid="workspace-page">
       {/* Bundle 6 T2 (items 1/2/3) — the old 3-track grid (scenario
@@ -4742,51 +4807,12 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {showToolbarSave && (
-            // A1.1 (fix) — explicit Save, replacing the earlier debounced
-            // auto-save. Mirrors Studio.tsx's toolbar Save button
-            // (isDirty-gated, useUpdateScenario on click) rather than
-            // writing on every edit. R4 — suppressed for p-median-us's/
-            // transport-coal's/two-echelon-gold-au's Input Map tabs, which
-            // each render this same Save control inline in their own Layers
-            // row instead (see saveInLayersRow/saveInLayersRowTransport/
-            // saveInLayersRowTwoEchelon above).
+          {showToolbarSave && !saveBesideFilter && (
+            // A1.1 (fix) — explicit Save (isDirty-gated, useUpdateScenario on click). R4 — suppressed on the
+            // Input Map tabs that render Save inline in their Layers row (saveInLayersRow*). WQF-C2 — also
+            // suppressed on SAVE_BESIDE_FILTER_TABS, where the same cluster renders beside the table's Filter.
             <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b flex-shrink-0 bg-muted/10" data-testid="workspace-toolbar-row">
-              <div className="flex items-center gap-2 ml-auto">
-                {(ordinaryDirty || lensDirty) && (
-                  <span className="text-xs text-muted-foreground" data-testid="text-unsaved-changes">
-                    Unsaved changes
-                  </span>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleSaveClick}
-                  disabled={!saveEnabled || saveIsPending}
-                  data-testid="button-save"
-                  className={saveEnabled ? "border-primary text-[var(--text-primary)] hover:bg-primary/10" : ""}
-                >
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  {saveIsPending ? "Saving…" : saveLabel}
-                </Button>
-                {/* QFX-1 — super's whole-network Import / Export sit right of Save. Import is hidden while browsing
-                    history (it writes); Export stays (user decision C2) and exports the latest SAVED network. */}
-                {modelId === "super-model" && currentScenario && (
-                  <>
-                    {!isBrowsingHistoryNow && (
-                      <Button size="sm" variant="outline" onClick={() => setSuperImportOpen(true)} data-testid="super-toolbar-import">
-                        Import network
-                      </Button>
-                    )}
-                    <DownloadMenu
-                      label="Export"
-                      testId="super-toolbar-export"
-                      itemTestIds={{ csv: "super-toolbar-export-csv", json: "super-toolbar-export-json", xlsx: "super-toolbar-export-xlsx" }}
-                      onDownload={format => void handleSuperExport(format)}
-                    />
-                  </>
-                )}
-              </div>
+              <div className="ml-auto">{saveCluster}</div>
             </div>
           )}
           <div className="flex-1 min-h-0 flex overflow-hidden">
@@ -4796,6 +4822,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                 consume it; nothing does yet, so this is inert (a provider
                 with no consumers cannot regress anything). */}
             <ExportProvider value={exportValue}>
+              <ToolbarSaveSlot.Provider value={saveBesideFilter ? saveCluster : null}>
               <div className="flex-1 min-w-0 overflow-y-auto p-4 text-sm" data-testid="tab-content-region">
                 {!currentScenario ? (
                   // First-run empty state: with no scenario, the input tabs'
@@ -4826,6 +4853,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
                   <span className="text-muted-foreground">Pick an item from the sidebar to view it.</span>
                 )}
               </div>
+              </ToolbarSaveSlot.Provider>
             </ExportProvider>
           </div>
         </div>

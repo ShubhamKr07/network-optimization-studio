@@ -5563,3 +5563,12 @@ Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 3; spec Part C
 - `lib/chapters.ts:94,97`: landing card title and Model Lab header. Manifest name served by `/api/models` unchanged. No test asserted the old string.
 - Test: `lib/chapters.test.ts` (red before, green after).
 - Gate: studio typecheck clean; touched files (chapters, Landing, lockedChapterDrift) 45 passed.
+
+## WQF-C2 — Save beside Filter on input tables (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 2; spec Part C2.
+- `components/data-table/ToolbarSaveSlot.ts` (new context) + `DataTable.tsx`: the Workspace Save cluster renders right of Filter (`data-table-save-slot`), or in Filter's place when Filter is hidden (≤ 10 rows).
+- `Workspace.tsx`: `SAVE_BESIDE_FILTER_TABS` — 31 model/tab pairs where Save showed AND the tab is a DataTable (table in the plan); the cluster (`workspace-save-cluster`: unsaved text, Save, and super's Import network/Export) moves as one unit; the toolbar row renders only where Save stays. Gating, behaviour and `button-save` unchanged; Input Map inline Saves unchanged.
+- Edge states kept in the row: no scenario, no draft yet, empty super network. During a tab's own `Loading…` (dataset not yet loaded) Save is briefly absent on listed tabs — nothing is dirty then.
+- Tests: DataTable slot (RTL); TabCoverage asserts the location of Save on every input tab of seven models plus a 31-pair registry check; Workspace (delivery) and Super QFX-1 rewritten to the cluster; `e2e/wqf-c2-save-beside-filter.spec.ts` (real browser, Filter shown and hidden). Red with `saveBesideFilter && false`, green restored.
+- Gate: studio typecheck clean; touched vitest files (DataTable, TabCoverage, Workspace, Workspace.Super + mutationErrorSurface, rawErrorMessageSurface, historyReadOnlyTabs) 319 passed; wqf-c2 e2e 2/2.

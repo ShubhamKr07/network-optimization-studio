@@ -6,7 +6,7 @@
 // puts `cell()` output directly in the <td> (no wrapper element), and never
 // adds a column of its own.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FilterMenu } from "@/components/tables/FilterMenu";
 import { useTableFilters } from "@/lib/useTableFilters";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { deriveFilterDescriptors, FILTER_ROW_THRESHOLD } from "./deriveFilterDescriptors";
 import { PAGE_SIZE, pageResetKey, usePagedRows } from "./usePagedRows";
 import { TablePager } from "./TablePager";
+import { ToolbarSaveSlot } from "./ToolbarSaveSlot";
 import type { CellValue, ColumnDef, DataTableProps, DataTableSection } from "./types";
 
 function DataTableSkeleton({ cols, testId }: { cols: number; testId: string }) {
@@ -87,6 +88,7 @@ export function DataTable<T>({
   footer,
   countNoun,
 }: DataTableProps<T>) {
+  const saveSlot = useContext(ToolbarSaveSlot);
   // Pipeline (B2.2 + QFX-4, fixed order): effective rows (adapter) → filter → sort → clamp page → slice 50.
   const descriptors = useMemo(() => deriveFilterDescriptors(columns, rows), [columns, rows]);
   const tableFilters = useTableFilters(rows, descriptors);
@@ -307,7 +309,7 @@ export function DataTable<T>({
   }
 
   const hasToolbar = Boolean(
-    toolbar?.upload || toolbar?.download || toolbar?.add || toolbar?.extra || showFilter || testIds.count || testIds.toolbar,
+    toolbar?.upload || toolbar?.download || toolbar?.add || toolbar?.extra || showFilter || saveSlot != null || testIds.count || testIds.toolbar,
   );
 
   return (
@@ -327,6 +329,7 @@ export function DataTable<T>({
               </span>
             )}
             {showFilter && <FilterMenu descriptors={descriptors} tableFilters={tableFilters} triggerTestId={testIds.filterTrigger} />}
+            {saveSlot != null && <div className="contents" data-testid="data-table-save-slot">{saveSlot}</div>}
             {toolbar?.downloadAlign === "right" && toolbar?.download}
           </div>
         </div>
