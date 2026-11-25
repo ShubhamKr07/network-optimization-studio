@@ -5572,3 +5572,11 @@ Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 2; spec Part C
 - Edge states kept in the row: no scenario, no draft yet, empty super network. During a tab's own `Loading…` (dataset not yet loaded) Save is briefly absent on listed tabs — nothing is dirty then.
 - Tests: DataTable slot (RTL); TabCoverage asserts the location of Save on every input tab of seven models plus a 31-pair registry check; Workspace (delivery) and Super QFX-1 rewritten to the cluster; `e2e/wqf-c2-save-beside-filter.spec.ts` (real browser, Filter shown and hidden). Red with `saveBesideFilter && false`, green restored.
 - Gate: studio typecheck clean; touched vitest files (DataTable, TabCoverage, Workspace, Workspace.Super + mutationErrorSurface, rawErrorMessageSurface, historyReadOnlyTabs) 319 passed; wqf-c2 e2e 2/2.
+
+## WQF-C4 — Delivery Cost table: names and two decimals (C4 + C6) (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 4; spec Parts C4, C6.
+- `DeliveryCostsTab.tsx`: From/To cells read `W8 · Atlanta, GA` (ID first; `value` stays the ID, so filter and sort are unchanged); Base and Cost display `formatCost2` (half-up, 2 dp). Hand-typed costs are still stored as typed. Exports are unchanged (raw values).
+- `lib/deliveryCosts.ts` (new): `round2`, `formatCost2`. `Workspace.tsx` passes `chenLocationMapFromInputs(dataset, localInputs)`.
+- Tests: `lib/deliveryCosts.test.ts`; DeliveryCostsTab names/2-dp/as-typed cases (five existing assertions moved to the 2-dp text); Workspace wiring. All red first.
+- Gate: studio typecheck clean; touched vitest files (deliveryCosts, DeliveryCostsTab, Workspace) 212 passed.

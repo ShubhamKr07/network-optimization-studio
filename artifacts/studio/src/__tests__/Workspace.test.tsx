@@ -240,7 +240,7 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import { Workspace, defaultInputsForModel } from "@/pages/Workspace";
-import { useGetSolveJob, useCreateWatBotConversation, useGetWatBotStatus, getWatBotConversation, useListScenarios, usePrecheckScenario, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
+import { useGetSolveJob, useCreateWatBotConversation, useGetWatBotStatus, getWatBotConversation, useListScenarios, usePrecheckScenario, useGetReferenceCosts, useGetScenario, useListModels, getGetScenarioQueryKey, getListScenariosQueryKey } from "@workspace/api-client-react";
 import { useSearch } from "wouter";
 
 const mockUseGetSolveJob = vi.mocked(useGetSolveJob);
@@ -1326,6 +1326,27 @@ describe("Workspace — delivery-teaching-us Delivery Costs tab (Task 11)", () =
 
     fireEvent.click(screen.getByTestId("sidebar-input-optimization-parameters"));
     expect(within(screen.getByTestId("workspace-toolbar-row")).getByTestId("button-save")).toBeInTheDocument();
+  });
+
+  describe("with reference costs loaded", () => {
+    beforeEach(() => {
+      vi.mocked(useGetReferenceCosts).mockReturnValue({
+        data: { pairs: [{ fromId: "CHI", fromCode: "CHI", toId: "C1", toCode: "C1", cost: 10.005 }], distanceUnit: "mi" },
+        isLoading: false,
+        isError: false,
+      } as unknown as ReturnType<typeof useGetReferenceCosts>);
+    });
+    afterEach(() => {
+      vi.mocked(useGetReferenceCosts).mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useGetReferenceCosts>);
+    });
+
+    it("WQF-C4: names From/To from the model's dataset", () => {
+      renderDeliveryWorkspace();
+      fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+      const cells = within(screen.getByTestId("row-deliverycost-CHI-C1")).getAllByRole("cell");
+      expect(cells[0]).toHaveTextContent("CHI · Chicago, IL");
+      expect(cells[1]).toHaveTextContent("C1 · New York, NY");
+    });
   });
 
   it("adding a delivery cost override and saving PATCHes the new entry into inputs.laneCostOverrides", () => {

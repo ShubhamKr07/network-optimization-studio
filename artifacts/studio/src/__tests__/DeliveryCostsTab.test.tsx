@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 
@@ -72,7 +72,7 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("row-deliverycost-W1-C1")).toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W1-C2")).toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W2-C1")).toBeInTheDocument();
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
   });
 
   it("shows an override in place of its base value and marks it overridden", () => {
@@ -105,11 +105,11 @@ describe("DeliveryCostsTab", () => {
 
     expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 99 }]);
     // The override value now shows IN PLACE of the blank it replaced...
-    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99");
+    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99.00");
     // ...marked overridden...
     expect(screen.getByTestId("badge-deliverycost-overridden-W1-C1")).toBeInTheDocument();
     // ...while the Base column keeps showing the untouched reference value.
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
   });
 
   it("paginates at 50 rows", () => {
@@ -311,7 +311,7 @@ describe("DeliveryCostsTab", () => {
     };
     render(<Wrapper />);
 
-    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99");
+    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99.00");
 
     fireEvent.click(screen.getByTestId("button-remove-deliverycost-W1-C1"));
 
@@ -319,6 +319,47 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("");
     expect(screen.queryByTestId("badge-deliverycost-overridden-W1-C1")).not.toBeInTheDocument();
     // Row stays visible (it's a real base pair) showing the base value.
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
+  });
+});
+
+describe("DeliveryCostsTab — names and two decimals (WQF-C4/C6)", () => {
+  const LOC = { W33: { city: "Springfield", state: "IL" }, C33: { city: "Arlington", state: "TX" } };
+
+  it("shows From/To as `ID · City, ST` and still filters on the ID", () => {
+    mockReferenceCosts(buildPairs(40));
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" locationById={LOC} />);
+    filterText("from", "W33");
+    const row = screen.getByTestId("row-deliverycost-W33-C33");
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent(/^W33 · Springfield, IL$/);
+    expect(cells[1]).toHaveTextContent(/^C33 · Arlington, TX$/);
+    expect(screen.getAllByTestId(/^row-deliverycost-/)).toHaveLength(1);
+  });
+
+  it("falls back to the bare ID when a place is unknown", () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 5 }]);
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" locationById={{}} />);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C1")).getAllByRole("cell")[0]).toHaveTextContent(/^W1$/);
+  });
+
+  it("displays Base and Cost rounded to 2 dp", () => {
+    mockReferenceCosts([
+      { fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 1047.7157 },
+      { fromId: "W1", fromCode: "W1", toId: "C2", toCode: "C2", cost: 1.005 },
+    ]);
+    render(<DeliveryCostsTab laneCostOverrides={[{ fromId: "W1", toId: "C2", cost: 3.14159 }]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C1")).getAllByRole("cell")[2]).toHaveTextContent(/^1047\.72$/);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C2")).getAllByRole("cell")[2]).toHaveTextContent(/^1\.01$/);
+    expect(screen.getByTestId("input-deliverycost-W1-C2")).toHaveValue("3.14");
+  });
+
+  it("stores a hand-typed cost as typed, not rounded", () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
+    const onChange = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={onChange} modelId="delivery-teaching-us" />);
+    fireEvent.change(screen.getByTestId("input-deliverycost-W1-C1"), { target: { value: "3.14159" } });
+    fireEvent.blur(screen.getByTestId("input-deliverycost-W1-C1"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 3.14159 }]);
   });
 });

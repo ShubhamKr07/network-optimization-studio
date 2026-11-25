@@ -4262,6 +4262,7 @@ export function Workspace({ modelId, userEmail }: WorkspaceProps) {
           scenarioId={currentScenario?.id}
           onImportApplied={handleImportApplied}
           readOnly={isBrowsingHistoryNow}
+          locationById={chenLocationMapFromInputs(dataset, localInputs)}
         />
       );
     }
