@@ -111,8 +111,8 @@ export const PRIVACY_NOTICE: LegalDoc = {
       ],
       bullets: [
         "Anthropic (WatBot): your WatBot questions, the context sent with them, and the answers.",
-        "PostHog (usage analytics): pages you view and controls you use (on-screen text is masked), your account id, and your email address.",
-        "Sentry (error reports): technical details of errors, the page address (without query strings), your browser type, and your account id. Request bodies and cookies are removed before sending.",
+        "PostHog (usage analytics): pages you view and controls you use (on-screen text is masked), your account id, and your email address. Since 25 November 2026 PostHog is set not to store your IP address; it may still record an approximate location (country and city) worked out from it as each event arrives. Events recorded before that date may include your IP address; they are deleted when PostHog's retention period for our plan ends, or sooner if you ask (see below).",
+        "Sentry (error reports): technical details of errors, the page address (without query strings), your browser type, and your account id. Request bodies and cookies are removed before sending, and since 25 November 2026 Sentry is set not to store IP addresses. Error reports from before that date may include an IP address; Sentry deletes them on its own retention schedule.",
         "Resend (email): your email address and the reset link, when you ask for a password reset.",
         "OpenRouteService (road distances): the map coordinates of the sites in a network, when you ask for road distances. No account details are sent.",
         "Render (hosting): runs the app and its database, so it holds everything the app stores, including backups.",
