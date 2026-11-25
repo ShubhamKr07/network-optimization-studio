@@ -372,6 +372,16 @@ export type EnqueueScenarioSolveOutcome =
   | { kind: "user_busy" }
   | { kind: "queued"; jobId: number; modelId: string };
 
+// WQF-B6 (plan D9) — TEST-ONLY seam. When set, enqueueScenarioSolve awaits it
+// inside its transaction right after the scenario row lock and before the users
+// row lock, so a real-Postgres test can park the enqueue there and interleave
+// an account deletion deterministically. Never set outside tests.
+type EnqueueTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+let afterScenarioLockForTests: ((tx: EnqueueTx) => Promise<void>) | null = null;
+export function setAfterScenarioLockForTests(hook: ((tx: EnqueueTx) => Promise<void>) | null): void {
+  afterScenarioLockForTests = hook;
+}
+
 export async function enqueueScenarioSolve(scenarioId: number, userId: string): Promise<EnqueueScenarioSolveOutcome> {
   const outcome = await db.transaction(async (tx) => {
     const [scenario] = await tx.select().from(scenariosTable)
@@ -380,6 +390,7 @@ export async function enqueueScenarioSolve(scenarioId: number, userId: string): 
     if (!scenario) {
       return { kind: "not_found" } as const;
     }
+    if (afterScenarioLockForTests) await afterScenarioLockForTests(tx);
 
     // SEC-3 — at most ONE active (queued|running) job per user, every model.
     // Worker slots and the queue are global, so without this one account could

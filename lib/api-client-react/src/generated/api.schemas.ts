@@ -250,6 +250,15 @@ export interface ResetPasswordRequest {
   password: string;
 }
 
+export interface DeleteAccountRequest {
+  /**
+     * The current password, re-checked with argon2 before anything is deleted. Same upper bound as log-in (argon2 cost guard).
+     * @minLength 1
+     * @maxLength 128
+     */
+  password: string;
+}
+
 export interface FeedbackRequest {
   /**
      * Free-text feedback. Trimmed by the server before validation and before storage, so a whitespace-only body is rejected.

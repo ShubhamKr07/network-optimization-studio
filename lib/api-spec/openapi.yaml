@@ -987,6 +987,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthUserEnvelope'
+  /auth/account:
+    delete:
+      tags: [Auth]
+      operationId: deleteAccount
+      summary: Delete the signed-in user's account and the app's data about them
+      description: >-
+        Requires the current password. One transaction: locks the user's
+        scenarios and then the user's row (the solve-enqueue lock order),
+        refuses with 409 while any of the user's solve jobs is queued or
+        running, then deletes the user's solve jobs, scenarios and account;
+        WatBot conversations, messages, reports and feedback go by ON DELETE
+        CASCADE. Anonymous site feedback and the input-keyed result cache are
+        not linked to accounts and are not touched. Third-party copies
+        (analytics, error reports, the AI provider) and hosting backups are
+        not reached. Clears the session cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '204':
+          description: Account deleted; session cookie cleared.
+        '400':
+          description: Password missing or over-length.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: >-
+            Not authenticated. When the session cookie is validly signed but
+            its account no longer exists (e.g. a second delete), the response
+            also clears the cookie.
+        '403':
+          description: The password is not correct. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A solve job is queued or running. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Shares the log-in attempt limit (per client IP).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: The transaction failed and rolled back. Nothing was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
   /auth/forgot-password:
     post:
       tags: [Auth]
@@ -1630,6 +1689,17 @@ components:
             Same bounds as registration — deliberately one password standard,
             not two. The upper bound is the same argon2 cost guard described on
             RegisterRequest.password.
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >-
+            The current password, re-checked with argon2 before anything is
+            deleted. Same upper bound as log-in (argon2 cost guard).
     FeedbackRequest:
       type: object
       required: [body]

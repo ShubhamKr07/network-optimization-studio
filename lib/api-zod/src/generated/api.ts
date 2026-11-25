@@ -1231,6 +1231,19 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 /**
+ * Requires the current password. One transaction: locks the user's scenarios and then the user's row (the solve-enqueue lock order), refuses with 409 while any of the user's solve jobs is queued or running, then deletes the user's solve jobs, scenarios and account; WatBot conversations, messages, reports and feedback go by ON DELETE CASCADE. Anonymous site feedback and the input-keyed result cache are not linked to accounts and are not touched. Third-party copies (analytics, error reports, the AI provider) and hosting backups are not reached. Clears the session cookie.
+ * @summary Delete the signed-in user's account and the app's data about them
+ */
+export const deleteAccountBodyPasswordMax = 128;
+
+
+
+export const DeleteAccountBody = zod.object({
+  "password": zod.string().min(1).max(deleteAccountBodyPasswordMax).describe('The current password, re-checked with argon2 before anything is deleted. Same upper bound as log-in (argon2 cost guard).')
+})
+
+
+/**
  * Always answers 200, whether or not an account exists for the address, and answers before any lookup or send happens — a real lookup plus a Resend call is measurable against an instant miss, which would leak account existence even with an identical body. A failed send is therefore invisible to the caller and is reported to Sentry instead.
  * @summary Request a password reset link
  */

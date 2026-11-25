@@ -6,6 +6,12 @@ import { CURRENT_TERMS_VERSION } from "../lib/terms.js";
 
 export const SESSION_COOKIE = "nos_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The one session-cookie clear: log-out, account deletion, and a deleted account's leftover cookie (WQF-B6). */
+export function clearSessionCookie(res: Response): void {
+  const crossOrigin = process.env.NODE_ENV === "production";
+  res.clearCookie(SESSION_COOKIE, { path: "/", sameSite: crossOrigin ? "none" : "lax", secure: crossOrigin });
+}
 // The fallback is published in this repo, so a production process signing
 // cookies with it would let anyone forge a session. Fail boot instead. Logged
 // through pino first because Render drops stderr (see index.ts).
@@ -36,19 +42,22 @@ export function sessionCookieValue(user: { id: string; passwordHash: string | nu
   return `${user.id}.${Date.now()}.${passwordTag(user.passwordHash)}`;
 }
 
-/** The session's user; undefined when absent, expired or revoked. Throws if the lookup fails. */
+/** The session's user; undefined when absent, expired or revoked; null when the cookie is validly signed but its user row no longer exists (a deleted account). Throws if the lookup fails. */
 export async function sessionUser(req: Request) {
   const raw: unknown = req.signedCookies?.[SESSION_COOKIE];
   if (typeof raw !== "string") return undefined;
   const [userId, issuedAt, tag] = raw.split(".");
   if (!tag || !(Date.now() - Number(issuedAt) <= SESSION_TTL_MS)) return undefined;
   const user = await findUserById(userId);
+  // WQF-B6 (D11) — a deleted account: null, not undefined, so the auth boundary
+  // can clear the cookie as well as answer "signed out".
+  if (!user) return null;
   // WQF-B4 — a user who has not accepted the CURRENT terms holds no session.
   // Sessions are stateless signed cookies, so this one comparison is the
   // whole one-time log-out (deploy) and every future re-acceptance (a
   // constant bump). It runs at the start of each request, so a request that
   // already passed it when the version changed completes normally.
-  return user && passwordTag(user.passwordHash) === tag && user.termsVersion === CURRENT_TERMS_VERSION ? user : undefined;
+  return passwordTag(user.passwordHash) === tag && user.termsVersion === CURRENT_TERMS_VERSION ? user : undefined;
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -66,6 +75,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
   if (!user) {
+    // WQF-B6 (D11) — a validly signed cookie whose account is gone is signed out
+    // AND cleared, so the browser stops sending it (e.g. a second delete).
+    if (user === null) clearSessionCookie(res);
     res.status(401).json({ error: "Not authenticated" });
     return;
   }

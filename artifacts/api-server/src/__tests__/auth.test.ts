@@ -294,15 +294,17 @@ describe("requireAuth middleware", () => {
     const req = { signedCookies: { nos_session: cookie } } as any;
     const json = vi.fn();
     const status = vi.fn(() => ({ json }));
+    const clearCookie = vi.fn();
     const next = vi.fn();
-    await requireAuth(req, { status } as any, next);
-    return { req, status, json, next };
+    await requireAuth(req, { status, clearCookie } as any, next);
+    return { req, status, json, next, clearCookie };
   }
 
   it("returns 401 JSON and does not call next() when no session cookie is present", async () => {
-    const { status, next } = await run(undefined);
+    const { status, next, clearCookie } = await run(undefined);
     expect(status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
+    expect(clearCookie).not.toHaveBeenCalled();
   });
 
   it("sets req.userId and calls next() for a current session", async () => {
@@ -340,11 +342,12 @@ describe("requireAuth middleware", () => {
     }
   });
 
-  it("401s a deleted user", async () => {
+  it("401s a deleted user AND clears the cookie, so the browser stops sending it (WQF-B6 D11)", async () => {
     const cookie = sessionCookieValue(row);
     mockDb.select.mockReturnValue(makeChain([]));
-    const { status } = await run(cookie);
+    const { status, clearCookie } = await run(cookie);
     expect(status).toHaveBeenCalledWith(401);
+    expect(clearCookie).toHaveBeenCalledWith("nos_session", expect.objectContaining({ path: "/" }));
   });
 
   it("401s a pre-SEC-2 cookie (bare user id) without a DB lookup", async () => {

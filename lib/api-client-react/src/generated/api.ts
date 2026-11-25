@@ -24,6 +24,7 @@ import type {
   AuthUserEnvelope,
   CreateWatBotConversationRequest,
   Dataset,
+  DeleteAccountRequest,
   ErrorEnvelope,
   ExportEnvelope,
   ExportScenarioNetwork200,
@@ -2232,6 +2233,78 @@ export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurre
 
 
 
+
+export const getDeleteAccountUrl = () => {
+
+
+
+
+  return `/api/auth/account`
+}
+
+/**
+ * Requires the current password. One transaction: locks the user's scenarios and then the user's row (the solve-enqueue lock order), refuses with 409 while any of the user's solve jobs is queued or running, then deletes the user's solve jobs, scenarios and account; WatBot conversations, messages, reports and feedback go by ON DELETE CASCADE. Anonymous site feedback and the input-keyed result cache are not linked to accounts and are not touched. Third-party copies (analytics, error reports, the AI provider) and hosting backups are not reached. Clears the session cookie.
+ * @summary Delete the signed-in user's account and the app's data about them
+ */
+export const deleteAccount = async (deleteAccountRequest: DeleteAccountRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteAccountUrl(),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      deleteAccountRequest,)
+  }
+);}
+
+
+
+
+export const getDeleteAccountMutationOptions = <TError = ErrorType<ErrorEnvelope | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAccount>>, TError,{data: BodyType<DeleteAccountRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAccount>>, TError,{data: BodyType<DeleteAccountRequest>}, TContext> => {
+
+const mutationKey = ['deleteAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAccount>>, {data: BodyType<DeleteAccountRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  deleteAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAccountMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAccount>>>
+    export type DeleteAccountMutationBody = BodyType<DeleteAccountRequest>
+    export type DeleteAccountMutationError = ErrorType<ErrorEnvelope | void>
+
+    /**
+ * @summary Delete the signed-in user's account and the app's data about them
+ */
+export const useDeleteAccount = <TError = ErrorType<ErrorEnvelope | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAccount>>, TError,{data: BodyType<DeleteAccountRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAccount>>,
+        TError,
+        {data: BodyType<DeleteAccountRequest>},
+        TContext
+      > => {
+      return useMutation(getDeleteAccountMutationOptions(options));
+    }
 
 export const getForgotPasswordUrl = () => {
 

@@ -28,6 +28,7 @@ export * from './createWatBotConversationRequest';
 export * from './customer';
 export * from './customerDemands';
 export * from './dataset';
+export * from './deleteAccountRequest';
 export * from './edge';
 export * from './edgeLeg';
 export * from './errorEnvelope';
