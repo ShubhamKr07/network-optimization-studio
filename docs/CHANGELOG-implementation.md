@@ -5593,3 +5593,17 @@ Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). P
 - **Studio:** the owner's SVG (512×512, green gradient robot; checked: no script, event handler, foreignObject or external href; owner confirmed rights, no credit) at `src/assets/watbot-icon.svg`, rendered as `<img alt="">` beside "WatBot": 16 px on the toolbar button (unavailable dot kept), 14 px in the panel header in place of the placeholder square.
 - **Tests:** RTL `WatBotPanel` / `Workspace` (alt, size, accessible name unchanged); e2e `"the icon renders beside the name…"`: image loaded, 16×16 and vertically centred in the button, 14×14 in the header. Red first; non-vacuity by removing each `<img>` (each went red), then restored.
 - **Gate:** touched studio tests green (202), typecheck + typecheck:e2e clean, watbot spec 22/22; full gate run by the lead.
+
+## WQF-A7 — paid test-set run on combined `wqf-a` (2026-11-25)
+
+Owner approved the spend. Run on `wqf-a` at `f559ebab` (A1–A6), dev key, local corpus (402 passages). **0 leaks in every type; all bars pass.** Measured cost $0.4294.
+
+| type | n | agreement | ends with ? | claim removed | values blocked | empty |
+|---|---|---|---|---|---|---|
+| concept_question | 31 | 100% | 97% | 87% | 16% | 0% |
+| incorrect_attempt | 36 | 96% | 97% | 92% | 11% | 0% |
+| correct_attempt | 35 | 91% | 6% | 97% | 11% | 0% |
+| stuck_or_wants_answer | 41 | 100% | 95% | 98% | 24% | 5% |
+| off_topic | 20 | 100% | 0% | 0% | 0% | 0% |
+
+Reported, not bars: screen references without context 0 of 64; replies with LaTeX 0 of 161; unseparated 4+-digit numbers 0 in 161 replies. Readings: A2's cap keeps every off-topic decline (0% empty, 0% removed). A1's split shows the high drop rate is mostly uncited text (87–98% of replies lose at least one uncited block), with the value check also firing on 11–24%; that is the input to the next prompt decision, not a regression. Correct-attempt "ends with a question" is 6% (2% on the previous run).
