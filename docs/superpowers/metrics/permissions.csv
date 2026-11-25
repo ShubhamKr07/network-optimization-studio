@@ -43,3 +43,6 @@ recorded_at,task_id,allow_total,allow_new,deny_total,denials_in_window,top_denie
 2026-11-20T12:57:42.105Z,WATBOT,870,0,0,0,,101,0,
 2026-11-22T12:32:12.578Z,WATBOT-FB,870,0,0,0,,101,0,
 2026-11-23T21:53:48.631Z,OMQ,870,870,0,0,,101,0,
+2026-11-25T14:13:05.313Z,WQF-A,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
+2026-11-25T14:13:07.490Z,WQF-B,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
+2026-11-25T14:13:09.571Z,WQF-C,870,0,0,10,AskUserQuestion,101,0,"gate: recurring denial: ""AskUserQuestion"" denied again (also flagged in a prior audit)"
