@@ -103,7 +103,7 @@ Edge states (decided, see "Resolved ambiguities"): super-model with an empty net
 | 123.45 | 484,892 | 23.1 % |
 | every cost = `Number.MAX_VALUE` (longest JSON number, 23 chars) | 634,990 | 30.3 % |
 
-The rest of the inputs blob adds at most a few tens of KB (313 customer overrides). **An over-limit Apply is unreachable for this dataset**, so the plan ships no runtime over-limit branch (dead, untestable code) and instead pins the bound with a vitest that fails if the dataset or row shape ever grows to half the limit (Task 5). A cost that overflows to `Infinity` serialises as `null`, the server's Zod (`validation/inputs/delivery.ts:13`, `z.number().finite().nonnegative()`) rejects it with a 422 sentence, and the Apply failure toast shows that sentence via `describeWriteError` — no client-side special case.
+The rest of the inputs blob adds at most a few tens of KB (313 customer overrides). An over-limit Apply is therefore not reachable with today's dataset, **but spec C5 requires the guard, so Task 5 ships it** (Codex adversarial review of the plans, 2026-11-25): before any state change, the Apply handler builds the exact PATCH body the save will send (`wholeInputsBody`, the one builder `saveWholeInputsAsync` also uses), measures its UTF-8 bytes (`new TextEncoder().encode(JSON.stringify(body)).length`, which is what `express.json`'s limit counts) against `MAX_IMPORT_BYTES`, and on overflow writes nothing and says "Filter to N rows or fewer, then apply again.", with N = floor((limit − bytes without the applied rows) / average bytes per applied row). The limit has one source: `MAX_IMPORT_BYTES` is already exported by the shared `@workspace/import-schema` (`lib/import-schema/src/index.ts:24`), which `app.ts:9` imports for the server's parser and the studio already depends on (`ImportDialog.tsx:7`), so the studio imports the same constant — no mirror, no drift test. The guard is tested with an injected small limit (Workspace's `writeLimitBytes` prop). The measured bound stays pinned too: a vitest fails if the dataset or row shape ever grows to half the limit (Task 5). A cost that overflows to `Infinity` serialises as `null`, the server's Zod (`validation/inputs/delivery.ts:13`, `z.number().finite().nonnegative()`) rejects it with a 422 sentence, and the Apply failure toast shows that sentence via `describeWriteError` — no client-side special case.
 
 ### C5 — how the filtered rows across pages are read
 
@@ -124,10 +124,10 @@ The spec says "Costs only change the solve when **Adjust Cost Table** is on (`so
 | `artifacts/studio/src/components/data-table/ToolbarSaveSlot.ts` (create) | 2 | Context carrying the Workspace Save cluster into a `DataTable` |
 | `artifacts/studio/src/components/data-table/DataTable.tsx` (modify `:9`, `:309-332`) | 2, 5 | Render the Save slot beside Filter (2); render-prop over filtered rows (5) |
 | `artifacts/studio/src/components/data-table/types.ts` (modify `:113-138`) | 5 | `renderToolbarAction` prop |
-| `artifacts/studio/src/pages/Workspace.tsx` (modify) | 2, 4, 5 | Save-beside-Filter list + placement (2); location map to the cost tab (4); Apply handler (5) |
+| `artifacts/studio/src/pages/Workspace.tsx` (modify) | 2, 4, 5 | Save-beside-Filter list + placement (2); location map to the cost tab (4); Apply handler with the size guard, `wholeInputsBody`, `writeLimitBytes` prop (5) |
 | `artifacts/studio/e2e/wqf-c2-save-beside-filter.spec.ts` (create) | 2 | Real-browser placement proof |
 | `artifacts/studio/src/lib/chapters.ts` (modify `:94,:97`) | 3 | Chapter 5 title |
-| `artifacts/studio/src/lib/deliveryCosts.ts` (create) | 4, 5 | `round2`, `formatCost2` (4); `applyBaseMultiplier`, `parseMultiplier` (5) |
+| `artifacts/studio/src/lib/deliveryCosts.ts` (create) | 4, 5 | `round2`, `formatCost2` (4); `pairKey`, `applyBaseMultiplier`, `parseMultiplier`, `jsonBytes`, `rowsThatFit` (5) |
 | `artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx` (modify) | 4, 5 | Names + 2 dp (4); Base multiplier control (5) |
 | `artifacts/studio/e2e/wqf-c5-base-multiplier.spec.ts` (create) | 5 | Real-browser Apply → persisted → reload |
 | tests under `artifacts/studio/src/__tests__/`, `src/lib/*.test.ts` | 2–5 | listed per task |
@@ -1084,21 +1084,22 @@ git commit $P -m "[WQF-C4] show delivery cost places and two decimals"
 - Modify: `artifacts/studio/src/lib/deliveryCosts.ts`, `src/lib/deliveryCosts.test.ts` (append)
 - Modify: `artifacts/studio/src/components/data-table/types.ts:113-138`, `DataTable.tsx` (signature `:74-89`, `hasToolbar`, toolbar left group `:316-320`)
 - Modify: `artifacts/studio/src/components/workspace/tabs/DeliveryCostsTab.tsx`
-- Modify: `artifacts/studio/src/pages/Workspace.tsx` (`saveWholeInputsAsync` `:2205-2220`, new handler after `handleSaveInputs` `:2276-2285`, DeliveryCostsTab mount)
+- Modify: `artifacts/studio/src/pages/Workspace.tsx` (`WorkspaceProps` `:1441-1445` and the signature `:1491`, `saveWholeInputsAsync` `:2205-2220`, new `wholeInputsBody` before it, new handler after `handleSaveInputs` `:2276-2285`, DeliveryCostsTab mount)
 - Create: `artifacts/studio/src/__tests__/deliveryCostsWriteSize.test.ts`, `artifacts/studio/e2e/wqf-c5-base-multiplier.spec.ts`
 - Test: `src/__tests__/DataTable.test.tsx`, `src/__tests__/DeliveryCostsTab.test.tsx`, `src/__tests__/Workspace.test.tsx` (append)
 - Modify: `docs/CHANGELOG-implementation.md`
 
 **Interfaces:**
 - Consumes `round2` from Task 4 (`@/lib/deliveryCosts`), `LaneCostOverride` (`@/components/workspace/tabs/LaneCostsTab`, already imported by Workspace at `:111`).
-- Produces `applyBaseMultiplier(overrides: LaneCostOverride[], targets: ReadonlyArray<{ fromId: string; toId: string; base: number | null }>, multiplier: number): LaneCostOverride[]` and `parseMultiplier(text: string): number | null`.
+- Consumes `MAX_IMPORT_BYTES` from `@workspace/import-schema` — the same constant `app.ts:97` gives `express.json` for `PATCH /scenarios/:id` (studio already depends on the package, `ImportDialog.tsx:7`).
+- Produces `pairKey(o: { fromId: string; toId: string }): string`, `applyBaseMultiplier(overrides: LaneCostOverride[], targets: ReadonlyArray<{ fromId: string; toId: string; base: number | null }>, multiplier: number): LaneCostOverride[]`, `parseMultiplier(text: string): number | null`, `jsonBytes(value: unknown): number`, and `rowsThatFit(body: (laneCostOverrides: LaneCostOverride[]) => unknown, next: LaneCostOverride[], appliedKeys: ReadonlySet<string>, limit: number): number | null`.
 - Produces `DataTableProps<T>.renderToolbarAction?: (filteredRows: T[]) => ReactNode`.
-- `DeliveryCostsTab` gains `onApplyCosts?: (next: LaneCostOverride[]) => void` and `applyBlockedReason?: string | null`.
-- `saveWholeInputsAsync(patch: Record<string, unknown> = {}): Promise<Scenario>`.
+- `DeliveryCostsTab` gains `onApplyCosts?: (next: LaneCostOverride[], appliedKeys: ReadonlySet<string>) => void` and `applyBlockedReason?: string | null`.
+- `Workspace` gains `writeLimitBytes?: number` (default `MAX_IMPORT_BYTES`; tests inject a small one). `wholeInputsBody(patch: Record<string, unknown> = {}): { inputs: Record<string, unknown> }`; `saveWholeInputsAsync(patch: Record<string, unknown> = {}): Promise<Scenario>` sends exactly `wholeInputsBody(patch)` as the mutation's `data`.
 
-- [ ] **Step 1: Sanity check and skills** — `cd /Users/shubhamkr/nos-wqf-c5 && git rev-parse --abbrev-ref HEAD` (must print `wqf-c5-work`); base guard against `BASE5`; invoke karpathy-guidelines and ponytail. (Overkill check: the save path already exists — `saveWholeInputsAsync` — and needs only a one-key patch; a new field-scoped PATCH route would add contract, codegen and server work for no gain. The over-limit branch is not built: measured unreachable, pinned by a test instead.)
+- [ ] **Step 1: Sanity check and skills** — `cd /Users/shubhamkr/nos-wqf-c5 && git rev-parse --abbrev-ref HEAD` (must print `wqf-c5-work`); base guard against `BASE5`; invoke karpathy-guidelines and ponytail. (Overkill check: the save path already exists — `saveWholeInputsAsync` — and needs only a one-key patch; a new field-scoped PATCH route would add contract, codegen and server work for no gain. The size guard is required by spec C5 even though today's dataset cannot reach it; it is two small pure helpers plus an early return, it measures the body through the save's own builder rather than a second copy, and it takes the limit from the constant the server already uses — no new contract, no mirror. Simpler alternatives were rejected: no guard at all fails the spec; a hard-coded row cap would drift from the real byte limit.)
 
-- [ ] **Step 2: Failing helper tests** — append to `src/lib/deliveryCosts.test.ts` (extend the import to `{ applyBaseMultiplier, formatCost2, parseMultiplier, round2 }`):
+- [ ] **Step 2: Failing helper tests** — append to `src/lib/deliveryCosts.test.ts` (extend the import to `{ applyBaseMultiplier, formatCost2, jsonBytes, parseMultiplier, round2, rowsThatFit }`):
 
 ```ts
 describe("applyBaseMultiplier (WQF-C5)", () => {
@@ -1125,6 +1126,41 @@ describe("parseMultiplier (WQF-C5)", () => {
   it.each([["1.5", 1.5], [" 2 ", 2], ["0.01", 0.01]])("accepts %j", (t, n) => expect(parseMultiplier(t)).toBe(n));
   it.each(["", "0", "-2", "abc", "Infinity", "NaN"])("rejects %j", t => expect(parseMultiplier(t)).toBeNull());
 });
+
+describe("jsonBytes / rowsThatFit — the C5 size guard (WQF-C5)", () => {
+  // Synthetic body with a small injected limit; nothing is mocked. Every applied entry
+  // {"fromId":"W1","toId":"Cn","cost":20} is 37 bytes, so 5 of them + 4 commas = 189 bytes = 37.8 per row.
+  const body = (laneCostOverrides: unknown[]) => ({ inputs: { p: 3, laneCostOverrides } });
+  const applied = [1, 2, 3, 4, 5].map(i => ({ fromId: "W1", toId: `C${i}`, cost: 20 }));
+  const appliedKeys = new Set(applied.map(o => `${o.fromId}|${o.toId}`));
+
+  it("counts UTF-8 bytes, not UTF-16 code units", () => {
+    expect(jsonBytes("é")).toBe(4); // `"é"`: quote + 2-byte é + quote
+  });
+
+  it("returns null when the body fits the limit exactly", () => {
+    expect(rowsThatFit(body, applied, appliedKeys, jsonBytes(body(applied)))).toBeNull();
+  });
+
+  it("on overflow, says how many applied rows fit: floor((limit − bytes without them) / average per row)", () => {
+    const without = jsonBytes(body([]));
+    expect(rowsThatFit(body, applied, appliedKeys, without + 100)).toBe(2); // floor(100 / 37.8)
+    expect(rowsThatFit(body, applied, appliedKeys, jsonBytes(body(applied)) - 1)).toBe(4); // floor(188 / 37.8)
+    expect(rowsThatFit(body, applied, appliedKeys, without - 1)).toBe(0); // never negative
+  });
+
+  it("counts kept overrides outside the applied rows as fixed weight, not as rows that could be dropped", () => {
+    const kept = { fromId: "W9", toId: "C9", cost: 7 }; // 36 bytes
+    const next = [kept, ...applied];
+    // without = body([kept]); applied add 5 × 37 + 5 commas = 190 → 38 per row; floor(100 / 38) = 2.
+    // (Measuring "without" as body([]) instead would give floor(136 / 45.2) = 3.)
+    expect(rowsThatFit(body, next, appliedKeys, jsonBytes(body([kept])) + 100)).toBe(2);
+  });
+
+  it("is 0 when nothing was applied but the body is still over the limit", () => {
+    expect(rowsThatFit(body, [], new Set(), 1)).toBe(0);
+  });
+});
 ```
 
 Run `pnpm --filter studio exec vitest run src/lib/deliveryCosts.test.ts` → FAIL (`applyBaseMultiplier is not a function` / not exported).
@@ -1132,6 +1168,9 @@ Run `pnpm --filter studio exec vitest run src/lib/deliveryCosts.test.ts` → FAI
 - [ ] **Step 3: Implement the helpers** — append to `src/lib/deliveryCosts.ts` (and add `import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";` at the top):
 
 ```ts
+/** WQF-C5 — the one (fromId, toId) key the multiplier, its size guard and the tab share. */
+export const pairKey = (o: { fromId: string; toId: string }): string => `${o.fromId}|${o.toId}`;
+
 /** WQF-C5 — Cost = round2(Base × multiplier) for every target row that has a Base, overwriting any existing
  * override for that pair in place; overrides outside `targets` are kept; new pairs are appended. One entry per
  * pair, because the server refuses duplicate (fromId, toId) pairs (validation/inputs/delivery.ts). */
@@ -1140,12 +1179,36 @@ export function applyBaseMultiplier(
   targets: ReadonlyArray<{ fromId: string; toId: string; base: number | null }>,
   multiplier: number,
 ): LaneCostOverride[] {
-  const byPair = new Map(overrides.map(o => [`${o.fromId}|${o.toId}`, o]));
+  const byPair = new Map(overrides.map(o => [pairKey(o), o]));
   for (const t of targets) {
     if (t.base == null) continue;
-    byPair.set(`${t.fromId}|${t.toId}`, { fromId: t.fromId, toId: t.toId, cost: round2(t.base * multiplier) });
+    byPair.set(pairKey(t), { fromId: t.fromId, toId: t.toId, cost: round2(t.base * multiplier) });
   }
   return [...byPair.values()];
+}
+
+/** WQF-C5 — a request body's size on the wire: the UTF-8 bytes of its JSON, which is what the server's
+ * `express.json({ limit })` counts. */
+export function jsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+/** WQF-C5 size guard (spec C5). `body(overrides)` must build the request body exactly as the save sends it,
+ * with `laneCostOverrides` = `overrides`. Returns null when `body(next)` fits `limit`; otherwise an estimate of
+ * how many of the applied rows would fit: floor((limit − bytes without the applied rows) / average bytes per
+ * applied row). Overrides outside `appliedKeys` stay in the "without" weight: Apply keeps them. */
+export function rowsThatFit(
+  body: (laneCostOverrides: LaneCostOverride[]) => unknown,
+  next: LaneCostOverride[],
+  appliedKeys: ReadonlySet<string>,
+  limit: number,
+): number | null {
+  const bytesWith = jsonBytes(body(next));
+  if (bytesWith <= limit) return null;
+  if (appliedKeys.size === 0) return 0;
+  const bytesWithoutNewOverrides = jsonBytes(body(next.filter(o => !appliedKeys.has(pairKey(o)))));
+  const averageBytesPerOverride = (bytesWith - bytesWithoutNewOverrides) / appliedKeys.size;
+  return Math.max(0, Math.floor((limit - bytesWithoutNewOverrides) / averageBytesPerOverride));
 }
 
 /** WQF-C5 — the multiplier Apply accepts: a finite number > 0, else null. */
@@ -1207,8 +1270,9 @@ Re-run Step 4 → PASS.
 ```ts
 // WQF-C5 — an unfiltered Apply writes all 10,329 lanes in one PATCH. Measured 2026-11-25: 463,259 bytes at ×1
 // and 634,990 bytes with every cost at Number.MAX_VALUE (the longest JSON number), vs MAX_IMPORT_BYTES
-// 2,097,152 (app.ts:97). So the plan ships no over-limit branch; this test fails first if the dataset or the
-// override shape ever grows enough to make one necessary.
+// 2,097,152 (app.ts:97). The runtime size guard (rowsThatFit, Workspace's handleApplyDeliveryCosts) handles an
+// over-limit Apply; this test pins that a real unfiltered Apply on today's dataset never reaches it, and fails
+// first if the dataset or the override shape grows toward the limit.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -1264,6 +1328,7 @@ describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
     expect(next).toHaveLength(10329);
     expect(next[0]).toEqual({ fromId: "W1", toId: "C1", cost: 15 });
     expect(next[10328]).toEqual({ fromId: "W33", toId: "C10329", cost: 15507 });
+    expect((onApplyCosts.mock.calls[0][1] as ReadonlySet<string>).size).toBe(10329); // the applied keys, for the size guard
   });
 
   it("applies only to the filtered rows and keeps every other override", () => {
@@ -1272,12 +1337,15 @@ describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
     filterText("from", "W33");
     typeMultiplier("2");
     fireEvent.click(apply());
-    expect(onApplyCosts).toHaveBeenCalledWith([
-      keep,
-      { fromId: "W33", toId: "C33", cost: 84 },
-      { fromId: "W33", toId: "C66", cost: 150 },
-      { fromId: "W33", toId: "C99", cost: 216 },
-    ]);
+    expect(onApplyCosts).toHaveBeenCalledWith(
+      [
+        keep,
+        { fromId: "W33", toId: "C33", cost: 84 },
+        { fromId: "W33", toId: "C66", cost: 150 },
+        { fromId: "W33", toId: "C99", cost: 216 },
+      ],
+      new Set(["W33|C33", "W33|C66", "W33|C99"]), // applied keys only; the kept override is not one
+    );
   });
 
   it("is disabled when the filter matches nothing", () => {
@@ -1312,11 +1380,12 @@ describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
 
 - [ ] **Step 8: Implement the control in DeliveryCostsTab.tsx**
 
-Extend the `@/lib/deliveryCosts` import to `{ applyBaseMultiplier, formatCost2, parseMultiplier }`. Props interface, add:
+Extend the `@/lib/deliveryCosts` import to `{ applyBaseMultiplier, formatCost2, pairKey, parseMultiplier }`. Props interface, add:
 
 ```tsx
-  /** WQF-C5 — persists Base × multiplier for the filtered rows as ONE scenario write. Omitted = no control. */
-  onApplyCosts?: (next: LaneCostOverride[]) => void;
+  /** WQF-C5 — persists Base × multiplier for the filtered rows as ONE scenario write. `appliedKeys` (pairKey of
+   * every row the multiplier set) lets Workspace's size guard say how many rows fit. Omitted = no control. */
+  onApplyCosts?: (next: LaneCostOverride[], appliedKeys: ReadonlySet<string>) => void;
   /** WQF-C5 — non-null disables Apply and is its title (unsaved edits, a save in flight). */
   applyBlockedReason?: string | null;
 ```
@@ -1359,7 +1428,9 @@ Before `return (`, add:
               disabled={blocked != null}
               title={blocked ?? `Set Cost = Base × ${multiplier} for ${filtered.length} rows`}
               onClick={() => {
-                if (multiplier != null) onApplyCosts(applyBaseMultiplier(laneCostOverrides, filtered, multiplier));
+                if (multiplier == null) return;
+                const appliedKeys = new Set(filtered.filter(r => r.base != null).map(pairKey));
+                onApplyCosts(applyBaseMultiplier(laneCostOverrides, filtered, multiplier), appliedKeys);
               }}
               data-testid="button-deliverycost-apply-multiplier"
             >
@@ -1412,26 +1483,89 @@ and pass `renderToolbarAction={renderMultiplier}` to the `<DataTable<MergedRow>`
         expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't apply the multiplier", description: sentence, variant: "destructive" })),
       );
     });
+
+    it("WQF-C5: an Apply whose body would exceed the write limit writes nothing and says how many rows fit", () => {
+      // Five equal-length pairs: each applied override {"fromId":"CHI","toId":"Cn","cost":2x} is 38 bytes.
+      vi.mocked(useGetReferenceCosts).mockReturnValue({
+        data: { pairs: [1, 2, 3, 4, 5].map(i => ({ fromId: "CHI", fromCode: "CHI", toId: `C${i}`, toCode: `C${i}`, cost: 9 + i })), distanceUnit: "mi" },
+        isLoading: false,
+        isError: false,
+      } as unknown as ReturnType<typeof useGetReferenceCosts>);
+      const applyTimesTwo = () => {
+        fireEvent.click(screen.getByTestId("sidebar-input-deliveryCosts"));
+        fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: "2" } });
+        fireEvent.click(screen.getByTestId("button-deliverycost-apply-multiplier"));
+      };
+
+      // 1) Default limit (MAX_IMPORT_BYTES): the write goes out. Capture the exact body the save sent.
+      const first = renderDeliveryWorkspace();
+      applyTimesTwo();
+      expect(mockUpdateScenario.mutate).toHaveBeenCalledTimes(1);
+      const sent = mockUpdateScenario.mutate.mock.calls[0][0].data as { inputs: Record<string, unknown> };
+      expect(sent.inputs.laneCostOverrides).toHaveLength(5); // non-vacuity: the applied rows are in the body
+      const bytesWithout = new TextEncoder().encode(JSON.stringify({ inputs: { ...sent.inputs, laneCostOverrides: [] } })).length;
+      first.unmount();
+      mockUpdateScenario.mutate.mockClear();
+      mockToast.mockClear();
+
+      // 2) Injected limit 100 bytes above the body without overrides. The 5 applied overrides add
+      // 5 × 38 + 4 commas = 194 bytes = 38.8 per row, so the body is over the limit and floor(100 / 38.8) = 2 fit.
+      render(<Workspace modelId="delivery-teaching-us" userEmail="student@example.com" writeLimitBytes={bytesWithout + 100} />);
+      applyTimesTwo();
+      expect(mockUpdateScenario.mutate).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Too many rows to apply at once",
+        description: "Filter to 2 rows or fewer, then apply again.",
+        variant: "destructive",
+      }));
+      // Every row unchanged: no Cost became an override.
+      for (const i of [1, 2, 3, 4, 5]) expect(screen.queryByTestId(`badge-deliverycost-overridden-CHI-C${i}`)).not.toBeInTheDocument();
+    });
 ```
 
-Run `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx` → FAIL (`input-deliverycost-multiplier` not found — Workspace does not pass `onApplyCosts` yet).
+Run `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx` → FAIL (`input-deliverycost-multiplier` not found — Workspace does not pass `onApplyCosts` yet; the size-guard case also fails typecheck on `writeLimitBytes`).
 
 - [ ] **Step 10: Implement in Workspace.tsx**
 
-(a) `saveWholeInputsAsync` (`:2205`): signature becomes `function saveWholeInputsAsync(patch: Record<string, unknown> = {}): Promise<Scenario> {` and its `const inputs = buildWholeInputPayload();` becomes
+(a0) The limit prop. Add `import { MAX_IMPORT_BYTES } from "@workspace/import-schema";` to the imports; in `WorkspaceProps` (`:1441-1445`) add
 
 ```ts
-      // WQF-C5 — a caller may add keys on top of the draft (the Base multiplier passes laneCostOverrides).
-      const inputs = { ...buildWholeInputPayload(), ...patch };
+  /** WQF-C5 — the scenario write body limit the Base multiplier's size guard checks against. Defaults to the
+   * server's own (`MAX_IMPORT_BYTES`, the shared constant `app.ts:97` passes to express.json); tests inject a small one. */
+  writeLimitBytes?: number;
 ```
+and change the signature (`:1491`) to `export function Workspace({ modelId, userEmail, writeLimitBytes = MAX_IMPORT_BYTES }: WorkspaceProps) {`.
 
-(b) After `handleSaveInputs` (ends `:2285`):
+(a) Directly above `saveWholeInputsAsync` (`:2205`), add the one body builder:
+
+```ts
+  // WQF-C5 — the PATCH body a whole-input save sends (the generated client JSON.stringifies exactly this
+  // `data`), built in ONE place so the Base multiplier's size guard measures what the save will send.
+  // A caller may add keys on top of the draft (the Base multiplier passes laneCostOverrides).
+  function wholeInputsBody(patch: Record<string, unknown> = {}): { inputs: Record<string, unknown> } {
+    return { inputs: { ...buildWholeInputPayload(), ...patch } };
+  }
+```
+`saveWholeInputsAsync`'s signature becomes `function saveWholeInputsAsync(patch: Record<string, unknown> = {}): Promise<Scenario> {` and its `const inputs = buildWholeInputPayload();` becomes `const { inputs } = wholeInputsBody(patch);` (the `updateScenario.mutate({ scenarioId, data: { inputs } }, …)` call is unchanged, so `data` is exactly `wholeInputsBody(patch)`).
+
+(b) Add `import { rowsThatFit } from "@/lib/deliveryCosts";` (Workspace does not import that module yet), then after `handleSaveInputs` (ends `:2285`):
 
 ```ts
   // WQF-C5 — Delivery Costs' Base multiplier: the new laneCostOverrides go out as ONE whole-input write and
   // the response becomes the draft (saveWholeInputsAsync's onSuccess). Blocked while anything else is unsaved
   // (applyBlockedReason below), so the write changes laneCostOverrides and nothing else.
-  function handleApplyDeliveryCosts(next: LaneCostOverride[]) {
+  // Size guard (spec C5), BEFORE any state change: measure the exact body the save would send against the
+  // server's limit; over it, write nothing, leave every row as it is, and say how many rows fit.
+  function handleApplyDeliveryCosts(next: LaneCostOverride[], appliedKeys: ReadonlySet<string>) {
+    const fit = rowsThatFit(o => wholeInputsBody({ laneCostOverrides: o }), next, appliedKeys, writeLimitBytes);
+    if (fit !== null) {
+      toast({
+        title: "Too many rows to apply at once",
+        description: `Filter to ${fit} rows or fewer, then apply again.`,
+        variant: "destructive",
+      });
+      return;
+    }
     saveWholeInputsAsync({ laneCostOverrides: next }).catch(err => {
       toast({
         title: "Couldn't apply the multiplier",
@@ -1449,7 +1583,7 @@ Run `pnpm --filter studio exec vitest run src/__tests__/Workspace.test.tsx` → 
           applyBlockedReason={saveIsPending ? "Saving…" : saveEnabled ? "Save your changes first" : null}
 ```
 
-Re-run Step 9 → PASS. Then run the guards: `pnpm --filter studio exec vitest run src/__tests__/mutationErrorSurface.test.ts src/__tests__/rawErrorMessageSurface.test.ts src/__tests__/historyReadOnlyTabs.test.ts` → PASS.
+Re-run Step 9 → PASS. Non-vacuity of the size guard: temporarily replace `writeLimitBytes` with `MAX_IMPORT_BYTES` inside `handleApplyDeliveryCosts` → the size-guard case fails (`mutate` called once); restore. Then run the guards: `pnpm --filter studio exec vitest run src/__tests__/mutationErrorSurface.test.ts src/__tests__/rawErrorMessageSurface.test.ts src/__tests__/historyReadOnlyTabs.test.ts` → PASS.
 
 - [ ] **Step 11: Failing real-browser test** — create `artifacts/studio/e2e/wqf-c5-base-multiplier.spec.ts`:
 
@@ -1589,9 +1723,9 @@ pass `costAdjustEnabled={localInputs.costAdjustEnabled === true}` from the Works
 Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 5; spec Part C5.
 - `DeliveryCostsTab.tsx`: "Base ×" box + Apply right after Download. Apply sets Cost = round2(Base × m) for every row matching the filter across all pages (`DataTable`'s new `renderToolbarAction(filteredRows)`), overwriting existing Cost; disabled unless m is a finite number > 0, the filter matches rows, nothing else is unsaved, and no save is in flight.
 - `Workspace.tsx`: `handleApplyDeliveryCosts` → `saveWholeInputsAsync({ laneCostOverrides })` (one PATCH; response becomes the draft); failure toast via `describeWriteError`.
-- Size (measured, plan "C5 — measured write size"): unfiltered write 463,259 B at ×1, 634,990 B worst case, vs `MAX_IMPORT_BYTES` 2,097,152 — over-limit unreachable, so no runtime branch; `__tests__/deliveryCostsWriteSize.test.ts` pins it below half the limit.
+- Size guard (spec C5): before any state change, `handleApplyDeliveryCosts` measures the exact body the save sends (`wholeInputsBody`, shared with `saveWholeInputsAsync`) in UTF-8 bytes against `MAX_IMPORT_BYTES` (the shared `@workspace/import-schema` constant the server's parser uses; Workspace `writeLimitBytes` prop for tests); over it, nothing is written and a toast says "Filter to N rows or fewer, then apply again." (`rowsThatFit`). Measured (plan "C5 — measured write size"): unfiltered write 463,259 B at ×1, 634,990 B worst case, vs 2,097,152 — today's dataset never reaches the guard; `__tests__/deliveryCostsWriteSize.test.ts` pins it below half the limit.
 - D1 (owner, <date>): <A: no "Adjust Cost Table is off" note — edited costs change the solve with the toggle off too (`solve.py:1828-1837`) | B: note reads "…uses these costs at $1 per mile.">
-- Tests: helpers, DataTable render-prop, tab (validation, 10,329 unfiltered, filtered + kept overrides, blocked/read-only), Workspace (one write, dirty block, server sentence), `e2e/wqf-c5-base-multiplier.spec.ts` (313 rows over 7 pages persisted after reload; 10,329-row PATCH accepted). Red first; draft-only handler turns the e2e red.
+- Tests: helpers (incl. `jsonBytes`/`rowsThatFit` with a synthetic body and injected limit), DataTable render-prop, tab (validation, 10,329 unfiltered, filtered + kept overrides, applied keys, blocked/read-only), Workspace (one write, dirty block, server sentence, over-limit → zero writes + "Filter to 2 rows or fewer"), `e2e/wqf-c5-base-multiplier.spec.ts` (313 rows over 7 pages persisted after reload; 10,329-row PATCH accepted). Red first; draft-only handler turns the e2e red.
 - Gate: studio typecheck clean; studio vitest <N> passed; wqf-c5 e2e 2/2.
 ```
 
@@ -1690,7 +1824,7 @@ Then `list_deploys` for both services to see whether a build started.
 ## Resolved ambiguities (lead confirms with the owner at Task 7 Step 6)
 
 1. **C5 note (D1) — not resolved by the plan; owner decides** (Task 5 Step 13). Spec premise contradicts `solve.py:1828-1837`. Recommended A (no note).
-2. **C5 over-limit message** — measured unreachable (max 634,990 B of 2,097,152); no runtime branch, a pinning test instead.
+2. **C5 over-limit message** — shipped as spec C5 requires (Codex adversarial review of the plans, 2026-11-25, reversed the earlier "unreachable, no branch" call): the Apply handler measures the exact save body's UTF-8 bytes against `MAX_IMPORT_BYTES` (one shared constant, `@workspace/import-schema`, used by the server's parser) before any state change; over it, zero writes, rows unchanged, toast "Filter to N rows or fewer, then apply again." with N = floor((limit − bytes without the applied rows) / average bytes per applied row). Unreachable with today's dataset (max 634,990 B of 2,097,152), so it is tested with an injected limit (`writeLimitBytes`), and the measured bound stays pinned by `deliveryCostsWriteSize.test.ts`.
 3. **C5 with other unsaved edits** — Apply is disabled ("Save your changes first", the existing `superFetchDisabledReason` wording at `Workspace.tsx:2361`) so the single write changes only `laneCostOverrides`, never silently saving unrelated edits.
 4. **C5 rows without a Base** (overrides outside the base matrix) are skipped; the delivery base matrix is complete (33 × 313), so none exist today.
 5. **C2 super-model** — the whole cluster (Save + Import network + Export) moves together on the 7 super table tabs, keeping QFX-1's "right of Save" order; the row stays on super Input Map, Distances, Optimization Parameters and for an empty network.

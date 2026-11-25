@@ -24,10 +24,10 @@ Copied from the spec (Part B) and the repo's hard rules. Every task implicitly i
 - **`CURRENT_TERMS_VERSION`** is a server constant in the format `YYYY-MM-DD`: the date the owner approves the terms text. It is provisional (`2026-11-25`) until Task B9 sets the approval date.
 - **Log-in refusal, verbatim:** status 403 with body `{ "error": "terms_required" }` and **no cookie**, when the stored version is not current and `acceptTerms` is not `true`. The password is checked first.
 - **Reset-password:** sets the cookie only when the user's accepted version is current. Otherwise it succeeds without a cookie. **The response contract is unchanged** (`AuthUserEnvelope`).
-- **Deletion:** `DELETE /api/auth/account` requires auth and the current password. It runs in **one transaction, in this order:** lock the user's row (`SELECT … FOR UPDATE`); refuse with **409** if any of the user's solve jobs is `queued` or `running`; delete the user's `solve_jobs`, then `scenarios`, then the `users` row. `watbot_*` rows go by their existing `ON DELETE CASCADE`. The cookie is cleared. **`result_cache` and `feedback` are never touched, and `feedback` must never gain a user column** (`schema/feedback.ts:3-7`).
+- **Deletion:** `DELETE /api/auth/account` requires auth and the current password. It runs in **one transaction, in this order:** lock the user's scenario rows (`SELECT id FROM scenarios WHERE user_id = $1 ORDER BY id FOR UPDATE`), then the user's row (`SELECT … FOR UPDATE`) — the same order as `enqueueScenarioSolve` (D9); refuse with **409** if any of the user's solve jobs is `queued` or `running`; delete the user's `solve_jobs`, then `scenarios`, then the `users` row. A validly signed cookie whose user row is gone is signed out and cleared at the auth boundary (D11). `watbot_*` rows go by their existing `ON DELETE CASCADE`. The cookie is cleared. **`result_cache` and `feedback` are never touched, and `feedback` must never gain a user column** (`schema/feedback.ts:3-7`).
 - **Footer:** the home-page footer (`AppShell.tsx:114`, `homepage-credit-footer`) gains `Terms · Privacy · Delete my account`, kept away from the header's Log out buttons (`AppShell.tsx:82,97`).
 - **Legal pages:** public routes `/terms` and `/privacy` in the **single `<Switch>`** of `App.tsx` (studio `CLAUDE.md`). They show a visible **"Draft — pending review"** banner until Task B9. **Part B does not deploy before the owner confirms a qualified review** (spec B1).
-- **Deploy order (B6):** (1) production schema push, (2) nos-studio, (3) nos-api, each with its own owner approval. The approval request states that **every signed-in user will be logged out**.
+- **Deploy order (B6):** (1) production schema push, (2) nos-studio, (3) nos-api, each with its own owner approval. The approval request states that **every signed-in user will be logged out**, and states the **rollback policy (D15): fix forward; nos-api is never rolled back past Part B without explicit owner approval**.
 - **Hard rule #1:** `openapi.yaml` edit + `pnpm --filter @workspace/api-spec run codegen` (config `lib/api-spec/orval.config.ts`) + the regenerated `lib/api-zod/src/generated/**` and `lib/api-client-react/src/generated/**` go in **one commit**. Never hand-edit generated files.
 - **A closed-union error code is one change in three places:** the OpenAPI enum (`TermsRequiredError`), the regenerated types, and the server's typed literal (`const body: TermsRequiredError = { error: "terms_required" }`). That is one task (B4).
 - **Drizzle error leak (`artifacts/api-server/CLAUDE.md`):** every new `try` around a drizzle call that carries user data ends in `catch {` **with no error binding**, then logs a fixed `{ step }` and answers the route's own sentence.
@@ -59,9 +59,10 @@ Copied from the spec (Part B) and the repo's hard rules. Every task implicitly i
 | D6 | The legal pages are standalone, outside `AppShell`, and the same for signed-in and signed-out visitors. Form links open a new tab (plain `<a target="_blank">`, so wouter's click handler cannot swallow it). Footer links use the same tab. | B2, B7 |
 | D7 | The pages show the version date from a studio mirror (`TERMS_VERSION`). `termsVersionDrift.test.ts` fails if it differs from the server constant (the `lockedChapterDrift.test.ts` pattern). | B2 |
 | D8 | A wrong password on delete answers **403** "That password is not correct." It is not 401, so it cannot read as "signed out". Delete shares log-in's per-IP limiter (20/min), because a stolen cookie must not become an unlimited password oracle. | B6 |
-| D9 | The FK-race test uses a **deterministic stand-in**: a solve job owned by another user that points at the victim's scenario. It makes the scenario delete fail on the same `solve_jobs.scenario_id` foreign key that a late job would hit, and proves the whole transaction rolls back. The live race cannot be scheduled deterministically. `enqueueScenarioSolve` takes `FOR NO KEY UPDATE` on the users row (`jobRunner.ts:390`), and any `solve_jobs` insert takes `FOR KEY SHARE` on it through its FK. Both conflict with the delete's `FOR UPDATE`, so a concurrent enqueue either waits and then fails its own FK, or Postgres aborts one side as a deadlock. Both outcomes are covered by this rollback path. | B6 |
+| D9 | **Deletion takes its locks in the enqueue path's order.** `enqueueScenarioSolve` locks the scenario row `FOR UPDATE` (`jobRunner.ts:379`), then the users row `FOR NO KEY UPDATE` (`:395`). `deleteAccountData` therefore locks every scenario of the user (`ORDER BY id FOR UPDATE`) **first**, then the users row `FOR UPDATE`, then runs the active-job check. Locking the users row first would invert that order: a deletion holding the users row and waiting for a scenario, and an enqueue holding that scenario and waiting for the users row, deadlock (Codex adversarial review of the plans, 2026-11-25). With the shared order, the two queue: an enqueue that holds the scenario lock commits its job first, and the deletion then answers **busy (409)**; a deletion that holds the locks commits first, and the waiting enqueue's `SELECT … FOR UPDATE` then finds no row and answers **`not_found` (404)**. B6 proves both interleavings on real Postgres with the real `enqueueScenarioSolve`, driven deterministically: one test-only hook in `enqueueScenarioSolve` (`setAfterScenarioLockForTests`, awaited after the scenario lock and before the users lock; null in production) parks the enqueue, and a test transaction holding the fixture user's row parks the deletion between its two locks. Both tests deadlock (40P01) against the old users-first order, which is what makes them non-vacuous. **Residual, not closed:** a scenario committed in the gap between the deletion's two lock statements is not in its first lock set; if that brand-new scenario is also enqueued before the deletes reach it, the two transactions can still deadlock, and Postgres then aborts one of them with a full rollback (route answer: "Nothing was deleted" 500, or a failed solve request). It needs a create, a response, and a solve request to land inside a single in-progress delete, so the plan records it instead of adding machinery for it. | B6 |
 | D10 | Delete sends **no** PostHog event, because a `distinctId` capture would recreate the person the user just deleted. | B6 |
-| D11 | A "user already gone" outcome inside the transaction (a double-click race) answers 204 and clears the cookie. | B6 |
+| D11 | **A deleted account's cookie is handled at the auth boundary, not by the service.** A validly signed session whose users row no longer exists is signed out **and** its cookie is cleared: `sessionUser` returns `null` (not `undefined`) for that one case, and `requireAuth` and `GET /auth/user` call the shared `clearSessionCookie` (the same clear as log-out) when they see it. So a second `DELETE /api/auth/account` with the same cookie (another tab, a replay) answers **401 with a Set-Cookie that clears it**, and touches nothing. The route's own re-read of the user before the password check maps a vanished row the same way (401, cookie cleared). `deleteAccountData` has no "gone" outcome: if a concurrent delete committed first, its statements match nothing. The studio has **no global 401 → signed-out handler** (`custom-fetch.ts` throws `ApiError`; only `GET /auth/user` drives the `Gate` in `App.tsx`): a 401 inside the delete dialog shows the server's sentence "Not authenticated" via `describeWriteError` in `alert-delete-error`, and the next page load's `GET /auth/user` returns `{ user: null }` (now also clearing the cookie), so the `Gate` sends the student to Log in. In one browser the second request carries no cookie at all, because the first 204 already cleared it. | B6 |
+| D15 | **Rollback policy: fix forward.** nos-api is never rolled back to a build from before B4's enforcement commit without explicit owner approval, because that older build re-admits every stale cookie and accepts log-ins with no consent. If a rollback past Part B is ever forced, nos-studio is rolled back with it, and the next forward deploy of nos-api re-applies B4 (every user without the current version is signed out again and must tick the box), so recorded acceptances stay valid and nothing unrecorded persists. The two columns stay in place either way (nullable; the old build ignores them). Before the nos-api deploy, the lead records the last pre-Part-B nos-api deploy as the "do not roll back past" marker: its Render deploy id goes in the private `nos-ops-private` deploy record (a production resource id, PRIV-1), and the public changelog deploy record names only that deploy's commit SHA and points to the private § key. There is **no rollback rehearsal**: a meaningful drill would be a production rollback, which is the very thing the policy forbids. | B12 |
 | D12 | Pipeline order follows root `CLAUDE.md` (the governing rule): gates → `finishing-a-development-branch` → **merge approval** → local merge → whole-branch review **on the merged state** → `/harness-retro WQF-B` → push. The brief listed review before finishing; the repo rule wins. | B10–B11 |
 | D13 | e2e reaches the database only through `psql` with psql-bound variables (`e2e/helpers/termsDb.ts`). The studio gains no DB driver, the same reasoning as `global.teardown.ts`. Those tests `test.skip` without `DATABASE_URL`, and the e2e gate step requires **0 skipped** in `terms-consent.spec.ts`. | B8 |
 | D14 | The production schema push happens **before** the push to `origin/main`, because a push can arm a deploy of either service (root `CLAUDE.md`, Branch discipline). | B12 |
@@ -81,8 +82,9 @@ Copied from the spec (Part B) and the repo's hard rules. Every task implicitly i
 | `lib/db/src/schema/auth.ts` | two nullable columns | B4 |
 | `artifacts/api-server/src/lib/terms.ts` (new) | `CURRENT_TERMS_VERSION` | B2 |
 | `artifacts/api-server/src/routes/auth.ts` | register/login enforcement; reset cookie gate; `clearSessionCookie`; `DELETE /auth/account` | B4, B5, B6 |
-| `artifacts/api-server/src/middlewares/auth.ts` | `sessionUser` version check | B5 |
+| `artifacts/api-server/src/middlewares/auth.ts` | `sessionUser` version check (B5); `null` for a deleted user, shared `clearSessionCookie`, `requireAuth` clears a deleted user's cookie (B6) | B5, B6 |
 | `artifacts/api-server/src/services/deleteAccount.ts` (new) | `deleteAccountData(userId)` transaction | B6 |
+| `artifacts/api-server/src/solver/jobRunner.ts` | test-only `setAfterScenarioLockForTests` hook in `enqueueScenarioSolve` (D9) | B6 |
 | `artifacts/studio/src/pages/legal/{legalMeta.ts,legalText.ts,LegalPage.tsx}` (new) | version/contact/draft flag; both documents' text; the page | B2, B9 |
 | `artifacts/studio/src/components/auth/TermsConsent.tsx` (new) | the one checkbox, used by both forms | B3 |
 | `artifacts/studio/src/pages/auth/{Login,Register,ResetPassword}.tsx` | consent; reset landing | B3, B5 |
@@ -1280,13 +1282,18 @@ vi.mock("../lib/sessionUser.js", async () => {
 **Files:**
 - Modify: `lib/api-spec/openapi.yaml` (new path after `/auth/user` `:961-972`; new `DeleteAccountRequest` after `ResetPasswordRequest` `:1582-1599`), plus regenerated output
 - Create: `artifacts/api-server/src/services/deleteAccount.ts`
-- Modify: `artifacts/api-server/src/routes/auth.ts` (extract `clearSessionCookie` from logout `:217-222`; add the route)
+- Modify: `artifacts/api-server/src/middlewares/auth.ts` (`sessionUser` returns `null` for a deleted user; new exported `clearSessionCookie`; `requireAuth` clears a deleted user's cookie — D11)
+- Modify: `artifacts/api-server/src/routes/auth.ts` (logout `:217-222` and `GET /auth/user` `:236-247` use `clearSessionCookie`; add the route)
+- Modify: `artifacts/api-server/src/solver/jobRunner.ts` (`enqueueScenarioSolve` `:375-395`: the test-only `setAfterScenarioLockForTests` hook — D9)
 - Create: `artifacts/api-server/src/__tests__/deleteAccountRoute.test.ts` (mocked), `artifacts/api-server/src/__tests__/deleteAccountIntegration.test.ts` (real Postgres)
+- Modify tests: `artifacts/api-server/src/__tests__/auth.test.ts` (`requireAuth` `run` helper `:291-298`, "401s a deleted user" `:331-336`)
 - Modify: `docs/CHANGELOG-implementation.md`
 
 **Interfaces:**
-- Produces: `deleteAccountData(userId: string): Promise<DeleteAccountOutcome>`, where `type DeleteAccountOutcome = "deleted" | "busy" | "gone"`, from `services/deleteAccount.ts`. It throws on any database error, after a full rollback.
-- Produces: `DELETE /api/auth/account`, body `{ password: string }` (1-128). Responses: **204** (cookie cleared), **400** `Enter your current password to delete your account.`, **401** not authenticated, **403** `That password is not correct.`, **409** `A solve is still queued or running for your account. Wait for it to finish, then try again.`, **429** `Too many attempts, try again shortly`, **500** `Could not delete your account. Nothing was deleted. Try again.` Generated: zod `DeleteAccountBody`; client `deleteAccount` and `useDeleteAccount`, with mutate variables `{ data: DeleteAccountRequest }`.
+- Produces: `deleteAccountData(userId: string): Promise<DeleteAccountOutcome>`, where `type DeleteAccountOutcome = "deleted" | "busy"`, from `services/deleteAccount.ts`. It throws on any database error, after a full rollback.
+- Produces: `sessionUser(req)` returns `null` when the cookie's signature, TTL and format are valid but the users row does not exist (a deleted account); `undefined` for every other signed-out case. `clearSessionCookie(res: Response): void` is exported from `middlewares/auth.ts`.
+- Produces (tests only): `setAfterScenarioLockForTests(hook: ((tx) => Promise<void>) | null): void` from `solver/jobRunner.ts`; `enqueueScenarioSolve` awaits the hook, when set, right after its scenario lock and before its users lock.
+- Produces: `DELETE /api/auth/account`, body `{ password: string }` (1-128). Responses: **204** (cookie cleared), **400** `Enter your current password to delete your account.`, **401** `Not authenticated` (with a clearing Set-Cookie when the session's user no longer exists — D11), **403** `That password is not correct.`, **409** `A solve is still queued or running for your account. Wait for it to finish, then try again.`, **429** `Too many attempts, try again shortly`, **500** `Could not delete your account. Nothing was deleted. Try again.` Generated: zod `DeleteAccountBody`; client `deleteAccount` and `useDeleteAccount`, with mutate variables `{ data: DeleteAccountRequest }`.
 
 - [ ] **Step 1: Invoke skills** (karpathy, then ponytail).
 
@@ -1299,7 +1306,8 @@ vi.mock("../lib/sessionUser.js", async () => {
       operationId: deleteAccount
       summary: Delete the signed-in user's account and the app's data about them
       description: >-
-        Requires the current password. One transaction: locks the user's row,
+        Requires the current password. One transaction: locks the user's
+        scenarios and then the user's row (the solve-enqueue lock order),
         refuses with 409 while any of the user's solve jobs is queued or
         running, then deletes the user's solve jobs, scenarios and account;
         WatBot conversations, messages, reports and feedback go by ON DELETE
@@ -1323,7 +1331,10 @@ vi.mock("../lib/sessionUser.js", async () => {
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '401':
-          description: Not authenticated.
+          description: >-
+            Not authenticated. When the session cookie is validly signed but
+            its account no longer exists (e.g. a second delete), the response
+            also clears the cookie.
         '403':
           description: The password is not correct. Nothing was deleted.
           content:
@@ -1376,8 +1387,9 @@ import { createHmac } from "node:crypto";
 
 const mockDeleteAccountData = vi.hoisted(() => vi.fn());
 vi.mock("../services/deleteAccount.js", () => ({ deleteAccountData: mockDeleteAccountData }));
-const current = vi.hoisted(() => ({ row: null as null | Record<string, unknown> }));
-vi.mock("../lib/sessionUser.js", () => ({ findUserById: async () => current.row }));
+// One mock serves requireAuth's session lookup AND the route's re-read before the password check.
+const mockFindUserById = vi.hoisted(() => vi.fn());
+vi.mock("../lib/sessionUser.js", () => ({ findUserById: mockFindUserById }));
 
 import app from "../app.js";
 import { sessionCookieValue, SESSION_SECRET } from "../middlewares/auth.js";
@@ -1391,7 +1403,8 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   resetLoginRateLimiterForTests();
-  current.row = row;
+  mockFindUserById.mockReset();
+  mockFindUserById.mockImplementation(async () => row);
 });
 
 function cookie(): string {
@@ -1433,9 +1446,14 @@ describe("DELETE /api/auth/account (route)", () => {
     expect(res.headers["set-cookie"]?.[0]).toMatch(/^nos_session=;.*Expires=Thu, 01 Jan 1970/);
   });
 
-  it("treats an already-gone user as deleted (D11)", async () => {
-    mockDeleteAccountData.mockResolvedValue("gone");
-    expect((await del({ password: "correcthorse1" })).status).toBe(204);
+  it("a user row that vanished after requireAuth is signed out: 401, cookie cleared, nothing deleted (D11)", async () => {
+    // requireAuth's lookup sees the row; the route's re-read before the password check does not.
+    mockFindUserById.mockResolvedValueOnce(row).mockResolvedValueOnce(undefined);
+    const res = await del({ password: "correcthorse1" });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Not authenticated" });
+    expect(res.headers["set-cookie"]?.[0]).toMatch(/^nos_session=;.*Expires=Thu, 01 Jan 1970/);
+    expect(mockDeleteAccountData).not.toHaveBeenCalled();
   });
 
   it("409s while a solve is queued or running, and keeps the cookie", async () => {
@@ -1476,15 +1494,17 @@ describe("DELETE /api/auth/account (route)", () => {
  * cleanup is scoped to those ids. Two users per test: a victim and a bystander,
  * so "exactly the user's rows go and nobody else's" is observable.
  */
-import { describe, it, expect, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from "vitest";
 import request from "supertest";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   db, usersTable, scenariosTable, solveJobsTable, feedbackTable, resultCacheTable,
   watbotConversationsTable, watbotMessagesTable, watbotReportsTable, watbotFeedbackTable,
 } from "@workspace/db";
 import app from "../app.js";
 import { resetLoginRateLimiterForTests } from "../routes/auth.js";
+import { deleteAccountData } from "../services/deleteAccount.js";
+import { enqueueScenarioSolve, setAfterScenarioLockForTests, setDraining } from "../solver/jobRunner.js";
 
 const PASSWORD = "correcthorse1";
 const createdUserIds: string[] = [];
@@ -1593,42 +1613,183 @@ describe("DELETE /api/auth/account — real Postgres", () => {
     expect(await counts(victim.id)).toEqual(ONE_EACH);
   });
 
-  // D9 — the FK-race stand-in. A job the caller does not own (so the user-scoped
-  // solve_jobs delete leaves it) still points at the caller's scenario, so the
-  // scenarios delete fails on solve_jobs.scenario_id: the same FK a job enqueued
-  // after the busy check would hit. The WHOLE transaction must roll back.
-  it("rolls everything back when the scenario delete hits a solve_jobs FK, and answers the route's own 500", async () => {
-    const victim = await registerUser("fkrace");
-    const bystander = await registerUser("fkrace-other");
-    const { scenarioId } = await seedOwnedRows(victim.id);
-    const [foreign] = await db.insert(solveJobsTable)
-      .values({ scenarioId, userId: bystander.id, status: "succeeded", inputsHash: `wqfb-del-fk-${scenarioId}` }).returning();
-    try {
-      const res = await del(victim.cookie);
-      expect(res.status).toBe(500);
-      expect(res.body).toEqual({ error: "Could not delete your account. Nothing was deleted. Try again." });
-      // The victim's OWN job was deleted earlier in the same transaction; it is
-      // back, which proves a rollback and not a partial delete.
-      expect(await counts(victim.id)).toEqual(ONE_EACH);
-      expect((await request(app).get("/api/scenarios").set("Cookie", victim.cookie)).status).toBe(200);
-    } finally {
-      await db.delete(solveJobsTable).where(and(eq(solveJobsTable.id, foreign!.id), eq(solveJobsTable.userId, bystander.id)));
-    }
+  // D11 — the deleted account's cookie is handled at the auth boundary.
+  it("a second DELETE with the same cookie is a 401 that clears the cookie, and touches nobody else", async () => {
+    const victim = await registerUser("twice");
+    const bystander = await registerUser("twice-bystander");
+    await seedOwnedRows(victim.id);
+    await seedOwnedRows(bystander.id);
+
+    const first = await del(victim.cookie);
+    expect(first.status).toBe(204);
+    expect(first.headers["set-cookie"]?.[0]).toMatch(/^nos_session=;.*Expires=Thu, 01 Jan 1970/);
+
+    // A stale copy of the same cookie (another tab, a replay).
+    const second = await del(victim.cookie);
+    expect(second.status).toBe(401);
+    expect(second.body).toEqual({ error: "Not authenticated" });
+    expect(second.headers["set-cookie"]?.[0]).toMatch(/^nos_session=;.*Expires=Thu, 01 Jan 1970/);
+
+    // The page-load check clears it too, and answers signed out.
+    const me = await request(app).get("/api/auth/user").set("Cookie", victim.cookie);
+    expect(me.body).toEqual({ user: null });
+    expect(me.headers["set-cookie"]?.[0]).toMatch(/^nos_session=;/);
+
+    // Non-vacuity: a request with no cookie at all is a plain 401 with nothing to clear.
+    const anonymous = await request(app).delete("/api/auth/account").send({ password: PASSWORD });
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers["set-cookie"]).toBeUndefined();
+
+    expect(await counts(victim.id)).toEqual(NONE);
+    expect(await counts(bystander.id)).toEqual(ONE_EACH);
   });
+});
+
+// D9 — deletion vs a concurrent solve enqueue for the SAME user, through the
+// real enqueueScenarioSolve, with a fixed interleaving. Both tests deadlock
+// (40P01, a rejected promise) if deleteAccountData locks the users row before
+// the scenarios, which is the inversion they exist to catch.
+describe("DELETE vs enqueue — lock order (real Postgres)", () => {
+  // Valid delivery inputs (deliveryPrecheckIntegration.test.ts's defaults), so
+  // the real enqueue passes validation and precheck and inserts a queued job.
+  const DELIVERY_INPUTS = {
+    p: 3, distanceBands: [400, 800, 1200, 1600], gap: 0, timeLimitSec: 120,
+    costAdjustEnabled: false, distanceThreshold: 800, costPerMile: 1, costPerMileOver: 10,
+    laneCostOverrides: [],
+  };
+
+  // This process never starts a queued job (pump() stops while draining). Another
+  // session's dispatcher on the shared nos_dev may still claim it; the delete's
+  // busy check counts queued AND running, so the outcome is the same either way.
+  beforeAll(() => setDraining(true));
+  afterAll(() => {
+    setDraining(false);
+    setAfterScenarioLockForTests(null);
+  });
+
+  async function solvableScenario(user: { cookie: string }): Promise<number> {
+    const res = await request(app).post("/api/scenarios").set("Cookie", user.cookie)
+      .send({ name: "wqfb-del-race", modelId: "delivery-teaching-us", inputs: DELIVERY_INPUTS });
+    expect(res.status).toBe(201);
+    return res.body.id as number;
+  }
+
+  async function backendPid(conn: Pick<typeof db, "execute">): Promise<number> {
+    const r = await conn.execute(sql`select pg_backend_pid() as pid`);
+    return (r.rows[0] as { pid: number }).pid;
+  }
+
+  /** Polls until some backend waits on a lock `holderPid` holds (or is queued ahead for); returns its pid. */
+  async function waitForBlockedBy(holderPid: number): Promise<number> {
+    for (let i = 0; i < 200; i++) {
+      const r = await db.execute(sql`select pid from pg_stat_activity where ${holderPid} = any(pg_blocking_pids(pid)) limit 1`);
+      if (r.rows.length > 0) return (r.rows[0] as { pid: number }).pid;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`no backend became blocked by ${holderPid} within 5 s`);
+  }
+
+  it("enqueue first: deletion waits on its scenario lock, the job commits, deletion answers busy — no deadlock", async () => {
+    const victim = await registerUser("race-enqueue-first");
+    const scenarioId = await solvableScenario(victim);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const enqueuePid = new Promise<number>((resolve) => {
+      // Parks the REAL enqueue after its scenario lock, before its users lock.
+      setAfterScenarioLockForTests(async (tx) => { resolve(await backendPid(tx)); await gate; });
+    });
+    try {
+      const enqueue = enqueueScenarioSolve(scenarioId, victim.id);
+      const holder = await enqueuePid;
+      setAfterScenarioLockForTests(null);
+      const deletion = deleteAccountData(victim.id);
+      await waitForBlockedBy(holder); // the deletion is waiting on the enqueue's scenario lock
+      release();
+
+      const [enqueued, deleted] = await Promise.allSettled([enqueue, deletion]);
+      expect(enqueued).toEqual({ status: "fulfilled", value: expect.objectContaining({ kind: "queued" }) });
+      expect(deleted).toEqual({ status: "fulfilled", value: "busy" });
+      const after = await counts(victim.id);
+      expect([after.users, after.scenarios, after.solveJobs]).toEqual([1, 1, 1]);
+      // The route maps the same state to its documented 409, never a 500.
+      expect((await del(victim.cookie)).status).toBe(409);
+    } finally {
+      setAfterScenarioLockForTests(null);
+      release();
+    }
+  }, 20_000);
+
+  it("deletion first: enqueue waits on deletion's scenario lock, deletion commits, enqueue answers not_found — no deadlock", async () => {
+    const victim = await registerUser("race-delete-first");
+    const scenarioId = await solvableScenario(victim);
+    // Parks the deletion BETWEEN its two locks: this test transaction holds the
+    // fixture user's row (and only that row) until released.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let parkerReady!: (pid: number) => void;
+    const parkerPid = new Promise<number>((resolve) => { parkerReady = resolve; });
+    const parker = db.transaction(async (tx) => {
+      await tx.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.id, victim.id)).for("update");
+      parkerReady(await backendPid(tx));
+      await gate;
+    });
+    try {
+      const deletion = deleteAccountData(victim.id);
+      const deletionPid = await waitForBlockedBy(await parkerPid); // holds the scenario lock, waits for the users row
+      const enqueue = enqueueScenarioSolve(scenarioId, victim.id);
+      await waitForBlockedBy(deletionPid); // the enqueue is waiting on the deletion's scenario lock
+      release();
+      await parker;
+
+      const [deleted, enqueued] = await Promise.allSettled([deletion, enqueue]);
+      expect(deleted).toEqual({ status: "fulfilled", value: "deleted" });
+      expect(enqueued).toEqual({ status: "fulfilled", value: { kind: "not_found" } });
+      expect(await counts(victim.id)).toEqual(NONE);
+    } finally {
+      release();
+      await parker.catch(() => {});
+    }
+  }, 20_000);
 });
 ```
 
 - [ ] **Step 5: Run both and watch them fail.**
   Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server exec vitest run src/__tests__/deleteAccountRoute.test.ts src/__tests__/deleteAccountIntegration.test.ts`
-  Expected: FAIL. The mocked file cannot resolve `../services/deleteAccount.js`, and the route returns 404 for `DELETE /api/auth/account`.
+  Expected: FAIL. The mocked file cannot resolve `../services/deleteAccount.js`, the integration file cannot import `deleteAccountData` or `setAfterScenarioLockForTests`, and the route returns 404 for `DELETE /api/auth/account`.
+
+  Also update `auth.test.ts`'s `requireAuth` block (`:291-336`) first, so the deleted-user case fails before Step 7: the `run` helper's fake response gains `clearCookie`, and the deleted-user case asserts the clear.
+
+```ts
+  async function run(cookie: unknown) {
+    const req = { signedCookies: { nos_session: cookie } } as any;
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    const clearCookie = vi.fn();
+    const next = vi.fn();
+    await requireAuth(req, { status, clearCookie } as any, next);
+    return { req, status, json, next, clearCookie };
+  }
+```
+  In "returns 401 JSON and does not call next() when no session cookie is present", destructure `clearCookie` too and add `expect(clearCookie).not.toHaveBeenCalled();`. Replace "401s a deleted user" with:
+
+```ts
+  it("401s a deleted user AND clears the cookie, so the browser stops sending it (WQF-B6 D11)", async () => {
+    const cookie = sessionCookieValue(row);
+    mockDb.select.mockReturnValue(makeChain([]));
+    const { status, clearCookie } = await run(cookie);
+    expect(status).toHaveBeenCalledWith(401);
+    expect(clearCookie).toHaveBeenCalledWith("nos_session", expect.objectContaining({ path: "/" }));
+  });
+```
+  Run: `DATABASE_URL="postgresql://shubhamkr@localhost:5432/nos_dev" pnpm --filter api-server exec vitest run src/__tests__/auth.test.ts`. Expected: FAIL on the `clearCookie` assertion (never called).
 
 - [ ] **Step 6: Create the service** `artifacts/api-server/src/services/deleteAccount.ts`:
 
 ```ts
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, scenariosTable, solveJobsTable, usersTable } from "@workspace/db";
 
-export type DeleteAccountOutcome = "deleted" | "busy" | "gone";
+export type DeleteAccountOutcome = "deleted" | "busy";
 
 /**
  * WQF-B5 — deletes ONE user's own rows. Every statement is scoped by `userId`;
@@ -1640,18 +1801,26 @@ export type DeleteAccountOutcome = "deleted" | "busy" | "gone";
  * by ON DELETE CASCADE from users. result_cache and feedback carry no user
  * link and are never touched.
  *
- * The users row lock (FOR UPDATE) conflicts with enqueueScenarioSolve's
- * FOR NO KEY UPDATE on the same row (jobRunner.ts:390) and with the FOR KEY
- * SHARE any solve_jobs insert takes through its FK, so a concurrent enqueue
- * waits and then fails its own FK, or Postgres aborts one side as a deadlock.
- * Either way a failure inside this transaction rolls everything back and the
- * caller answers "nothing was deleted" (D9).
+ * Lock order is enqueueScenarioSolve's (jobRunner.ts: the scenario row FOR
+ * UPDATE, then the users row FOR NO KEY UPDATE): this user's scenario rows
+ * first, by id, then the users row FOR UPDATE. Taking the same locks in the
+ * same order makes a concurrent enqueue on any of those scenarios queue instead
+ * of deadlock: if the enqueue holds the scenario lock first, its job commits
+ * and the active-job check below answers "busy"; if this transaction holds it
+ * first, the enqueue's SELECT ... FOR UPDATE finds no row once this commits
+ * and answers not_found. While the users row is locked, no new scenario or
+ * solve job can be inserted for this user (their FKs take FOR KEY SHARE on it).
+ * Any database error rolls the whole transaction back, and the route answers
+ * "Nothing was deleted" (plan D9). If a concurrent delete of the same account
+ * committed first, every statement here matches nothing: the account is gone
+ * either way, so there is no separate outcome for it.
  */
 export async function deleteAccountData(userId: string): Promise<DeleteAccountOutcome> {
   return db.transaction(async (tx) => {
-    const [locked] = await tx.select({ id: usersTable.id }).from(usersTable)
+    await tx.select({ id: scenariosTable.id }).from(scenariosTable)
+      .where(eq(scenariosTable.userId, userId)).orderBy(asc(scenariosTable.id)).for("update");
+    await tx.select({ id: usersTable.id }).from(usersTable)
       .where(eq(usersTable.id, userId)).for("update");
-    if (!locked) return "gone" as const;
 
     const [active] = await tx.select({ id: solveJobsTable.id }).from(solveJobsTable)
       .where(and(eq(solveJobsTable.userId, userId), inArray(solveJobsTable.status, ["queued", "running"])))
@@ -1666,17 +1835,64 @@ export async function deleteAccountData(userId: string): Promise<DeleteAccountOu
 }
 ```
 
-- [ ] **Step 7: Route.** In `routes/auth.ts`:
-  - Add `DeleteAccountBody` to the `@workspace/api-zod` import, plus `import { requireAuth } from "../middlewares/auth.js";` (merge into the line-20 import), `import { findUserById } from "../lib/sessionUser.js";`, and `import { deleteAccountData, type DeleteAccountOutcome } from "../services/deleteAccount.js";`.
-  - Extract the logout clear (`:217-222`) into a helper and call it from logout:
+- [ ] **Step 7: Auth boundary, enqueue test hook, route.**
+
+  **(a) `middlewares/auth.ts` (D11).** Add the shared clear next to `SESSION_COOKIE`:
 
 ```ts
-function clearSessionCookie(res: Response) {
+/** The one session-cookie clear: log-out, account deletion, and a deleted account's leftover cookie (WQF-B6). */
+export function clearSessionCookie(res: Response): void {
   const crossOrigin = process.env.NODE_ENV === "production";
   res.clearCookie(SESSION_COOKIE, { path: "/", sameSite: crossOrigin ? "none" : "lax", secure: crossOrigin });
 }
 ```
-  - Add, after the `/auth/user` handler (line 247):
+  In `sessionUser`, change the doc comment to `/** The session's user; undefined when absent, expired or revoked; null when the cookie is validly signed but its user row no longer exists (a deleted account). Throws if the lookup fails. */`, and replace its last two lines (`const user = await findUserById(userId);` and B5's `return user && … ? user : undefined;`) with:
+
+```ts
+  const user = await findUserById(userId);
+  // WQF-B6 (D11) — a deleted account: null, not undefined, so the auth boundary
+  // can clear the cookie as well as answer "signed out".
+  if (!user) return null;
+  return passwordTag(user.passwordHash) === tag && user.termsVersion === CURRENT_TERMS_VERSION ? user : undefined;
+```
+  In `requireAuth`, replace the `if (!user) { … }` block with:
+
+```ts
+  if (!user) {
+    // WQF-B6 (D11) — a validly signed cookie whose account is gone is signed out
+    // AND cleared, so the browser stops sending it (e.g. a second delete).
+    if (user === null) clearSessionCookie(res);
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+```
+
+  **(b) `routes/auth.ts`.** Merge `clearSessionCookie` and `requireAuth` into the line-20 import from `../middlewares/auth.js`; add `DeleteAccountBody` to the `@workspace/api-zod` import, `import { findUserById } from "../lib/sessionUser.js";`, and `import { deleteAccountData } from "../services/deleteAccount.js";`. In logout, replace the inline `const crossOrigin …; res.clearCookie(…);` (`:217-222`) with `clearSessionCookie(res);`. In `GET /auth/user`, before its `res.json(…)`, add:
+
+```ts
+  if (user === null) clearSessionCookie(res); // WQF-B6 (D11) — the deleted account's cookie, on page load too
+```
+
+  **(c) `solver/jobRunner.ts` — the test hook (D9).** Above `enqueueScenarioSolve`:
+
+```ts
+// WQF-B6 (plan D9) — TEST-ONLY seam. When set, enqueueScenarioSolve awaits it
+// inside its transaction right after the scenario row lock and before the users
+// row lock, so a real-Postgres test can park the enqueue there and interleave
+// an account deletion deterministically. Never set outside tests.
+type EnqueueTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+let afterScenarioLockForTests: ((tx: EnqueueTx) => Promise<void>) | null = null;
+export function setAfterScenarioLockForTests(hook: ((tx: EnqueueTx) => Promise<void>) | null): void {
+  afterScenarioLockForTests = hook;
+}
+```
+  and inside `enqueueScenarioSolve`, directly after `if (!scenario) { return { kind: "not_found" } as const; }`:
+
+```ts
+    if (afterScenarioLockForTests) await afterScenarioLockForTests(tx);
+```
+
+  **(d) The route.** Add, after the `/auth/user` handler (line 247):
 
 ```ts
 // WQF-B5 — in-app account deletion. The id is ALWAYS the session's own
@@ -1703,14 +1919,20 @@ router.delete("/auth/account", requireAuth, async (req: Request, res: Response) 
     res.status(500).json({ error: "Could not delete your account. Nothing was deleted. Try again." });
     return;
   }
-  const valid = user?.passwordHash ? await argon2.verify(user.passwordHash, parsed.data.password) : false;
-  if (!user || !valid) {
+  if (!user) {
+    // D11 — the row vanished after requireAuth (a concurrent delete): signed out, same as the auth boundary.
+    clearSessionCookie(res);
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const valid = user.passwordHash ? await argon2.verify(user.passwordHash, parsed.data.password) : false;
+  if (!valid) {
     res.status(403).json({ error: "That password is not correct." });
     return;
   }
 
   // No error binding: a failed drizzle statement's message carries the user id.
-  let outcome: DeleteAccountOutcome;
+  let outcome: Awaited<ReturnType<typeof deleteAccountData>>;
   try {
     outcome = await deleteAccountData(user.id);
   } catch {
@@ -1722,14 +1944,17 @@ router.delete("/auth/account", requireAuth, async (req: Request, res: Response) 
     res.status(409).json({ error: "A solve is still queued or running for your account. Wait for it to finish, then try again." });
     return;
   }
-  clearSessionCookie(res); // "deleted", or "gone" (D11)
+  clearSessionCookie(res);
   res.status(204).send();
 });
 ```
 
-- [ ] **Step 8: Run Step 5's command again.** Expected: PASS, 8 mocked and 6 integration cases. To prove the no-binding catch, temporarily replace `catch {` with `catch (e) { throw e; }` in the delete `try`. The 500 case must then fail with `{ error: "Internal server error" }`. Revert.
+- [ ] **Step 8: Run Step 5's commands again** (both files, plus `auth.test.ts`). Expected: PASS — 8 mocked and 7 integration cases, and the `requireAuth` block. Then three non-vacuity checks, each reverted afterwards (`git diff` shows no residue):
+  1. No-binding catch: temporarily replace `catch {` with `catch (e) { throw e; }` in the delete `try`. The 500 case must then fail with `{ error: "Internal server error" }`.
+  2. Lock order (D9): temporarily move the users-row `SELECT … FOR UPDATE` above the scenarios `SELECT … FOR UPDATE` in `deleteAccountData`. Both "DELETE vs enqueue" tests must then fail with a rejected promise whose cause carries `code: "40P01"` (deadlock detected; Postgres's `deadlock_timeout` is 1 s, so each takes about a second).
+  3. Cookie clear (D11): temporarily delete the `if (user === null) clearSessionCookie(res);` line in `requireAuth`. The "second DELETE" integration case must fail on the second response's `set-cookie`, and the `auth.test.ts` deleted-user case on `clearCookie`.
 
-- [ ] **Step 9: Per-task gate**, then **changelog** `### WQF-B6 — in-app account deletion`. The entry covers D8–D11, the deterministic FK stand-in and why the live race is serialised, the tests, the measured gate, and this follow-up: the deploy smoke's production test accounts could now clean themselves up through this endpoint (not done here). **Commit** `[WQF-B6] add in-app account deletion`.
+- [ ] **Step 9: Per-task gate**, then **changelog** `### WQF-B6 — in-app account deletion`. The entry covers D8–D11 (the shared lock order and its residual window, the test-only `setAfterScenarioLockForTests` hook added to `jobRunner.ts`, and the deleted account's cookie cleared at the auth boundary), the tests, the measured gate, and this follow-up: the deploy smoke's production test accounts could now clean themselves up through this endpoint (not done here). **Commit** `[WQF-B6] add in-app account deletion`.
 
 ---
 
@@ -2347,9 +2572,12 @@ test.describe("delete my account (B5)", () => {
   4. Verify by querying, not by trusting the push output: `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name='users' AND column_name LIKE 'terms_%' ORDER BY column_name;` must return the two rows from B4 Step 3. Remove the allowlist entry afterwards.
 - [ ] **Step 2: Push approval.** Before asking, run the PRIV-1 scan of `git log origin/main..main -p` for personal emails, IPs and production ids. The owner's public contact address is the one expected hit. The push request states that a push to `main` is deploy-adjacent: it may ship nos-studio, which is the intended first service, and it arms nos-api (`autoDeployTrigger: commit`). If nos-api builds before nos-studio, every log-in from the old studio is refused with `terms_required` until nos-studio ships. In that case deploy nos-studio immediately. Push only on an explicit yes, then run `list_deploys` for both services.
 - [ ] **Step 3: nos-studio deploy approval.** Run `pnpm deploy:preflight -- <deployed-sha>..HEAD` and include its checklist in the request. The request states: the studio now requires the tick and sends `acceptTerms`; the old API ignores the field, so acceptances in this window are not recorded and those students are asked again once the API ships; deploy nos-api right after. Re-fetch `origin/main` before triggering, because Render builds the tip. Trigger, then `list_deploys` until live.
-- [ ] **Step 4: nos-api deploy approval**, requested immediately after nos-studio is live. The request includes the preflight checklist (schema: **migrated in Step 1**, with the verification output) and states in plain words: **"Every signed-in user will be logged out when this deploy goes live, and must log in again with the terms box ticked."** Trigger, then `list_deploys` until live.
+- [ ] **Step 4: nos-api deploy approval**, requested immediately after nos-studio is live.
+  1. **Record the rollback marker first (D15).** `list_deploys` for nos-api; the latest `live` deploy is the last pre-Part-B build. Write its Render deploy id and commit SHA into the private `nos-ops-private` deploy record under a new § key (PRIV-1: the deploy id never enters this repo), as "do not roll back past this deploy".
+  2. **Ask.** The request includes the preflight checklist (schema: **migrated in Step 1**, with the verification output), the marker's commit SHA and private § key, and states in plain words: **"Every signed-in user will be logged out when this deploy goes live, and must log in again with the terms box ticked."** It also states the **rollback policy** (D15): *"Fix forward. nos-api will not be rolled back to a build before Part B's enforcement commit without your explicit approval, because the older build re-admits stale cookies and accepts log-ins with no consent. If such a rollback is ever forced, nos-studio is rolled back with it, and the next forward nos-api deploy signs out every user without the current version again, so recorded acceptances stay valid and nothing unrecorded persists. There is no rollback rehearsal: the only meaningful drill would be a production rollback."*
+  3. On an explicit yes: trigger, then `list_deploys` until live.
 - [ ] **Step 5: Verify production.** `pnpm smoke --env production` (`cookie_attributes` registers with `acceptTerms: true` since B1). Then the **owner** logs in at the production studio: a previously signed-in browser lands on Log in, the box is unticked, the button is disabled until ticked, the log-in succeeds, and `/terms` and `/privacy` show no draft banner. Check Sentry for new `NOS-API` errors on `/api/auth/*` in the first 15 minutes.
-- [ ] **Step 6:** Record the deploy in the changelog on a new branch (`wqf-b-deploy-record`): SHAs, times, smoke result, and the owner's log-in check. No production ids. Merge and push it under the same per-step approvals.
+- [ ] **Step 6:** Record the deploy in the changelog on a new branch (`wqf-b-deploy-record`): SHAs, times, smoke result, the owner's log-in check, and the rollback policy line "fix forward; do not roll nos-api back past `<marker commit SHA>` without owner approval (deploy id: `nos-ops-private` §<key>)" (D15). No production ids. Merge and push it under the same per-step approvals.
 
 ---
 
@@ -2362,7 +2590,10 @@ test.describe("delete my account (B5)", () => {
   - B3 columns, constant, `acceptTerms` in both requests with codegen, register 400 and record, log-in 403 `terms_required` with no cookie and record on accept: B1 + B4.
   - B4 session check in `sessionUser`/`requireAuth`: B5. One-time log-out at deploy and its approval wording: B12 Step 4.
   - B5 footer links away from Log out, the dialog with password, `DELETE /api/auth/account` with the lock, 409, ordered deletes, cascades, cookie clear, no-binding catch, `result_cache`/`feedback` untouched, the privacy statement on anonymous feedback and on third parties: B2, B6, B7, B8.
-  - B6 deploy order: B12.
+  - B5 deletion lock order shared with the enqueue path (no lock-order inversion), proven by two deterministic real-Postgres interleavings with the real `enqueueScenarioSolve` (D9, B6). The residual gap-window case is recorded in D9, not closed.
+  - B5 a deleted account's cookie: signed out and cleared at the auth boundary; second real `DELETE` is 401 with a clearing Set-Cookie (D11, B6). No "gone" outcome in the service. The studio has no global 401 handler; D11 says what it does instead.
+  - B6 deploy order: B12. B6 rollback policy (fix forward, marker recorded privately before the nos-api deploy, stated in the approval request, no rehearsal and why): D15, B12 Steps 4 and 6.
+- **Codex adversarial review of the plans (2026-11-25), folded:** deletion lock order (D9), rollback policy (D15), deleted account's cookie / double delete (D11).
   - Testing lines: B3/B4 route tests with and without `acceptTerms` (B4); session version test (B5); B5 real-Postgres exact-rows plus 409 (B6); real-browser layout assertions (B8); full gate plus e2e gate with `E2E_BASE_URL` (B10).
 - **Placeholder scan:** the one value the plan cannot contain is the owner's contact address (B2 Step 5), which is an explicit owner input. `termsVersionDrift.test.ts` fails until it is set, so it cannot ship blank. `renderAt` in B2 Step 2 names the existing `App.test.tsx` helper, which the task must use under its real name. The `<n>` and `<measured counts>` values in changelog templates are measured per task.
-- **Type consistency:** `CURRENT_TERMS_VERSION` (server), `TERMS_VERSION` (studio), `termsVersion`/`termsAcceptedAt` (drizzle), `TermsRequiredError`, `DeleteAccountBody`/`useDeleteAccount`, `deleteAccountData`/`DeleteAccountOutcome`, and the test ids are spelled identically in every task that produces or consumes them.
+- **Type consistency:** `CURRENT_TERMS_VERSION` (server), `TERMS_VERSION` (studio), `termsVersion`/`termsAcceptedAt` (drizzle), `TermsRequiredError`, `DeleteAccountBody`/`useDeleteAccount`, `deleteAccountData`/`DeleteAccountOutcome` (`"deleted" | "busy"`), `clearSessionCookie`, `setAfterScenarioLockForTests`, and the test ids are spelled identically in every task that produces or consumes them.
