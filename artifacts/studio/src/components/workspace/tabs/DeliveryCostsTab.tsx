@@ -8,6 +8,8 @@ import { DeleteRowButton, READ_ONLY_TITLE } from "@/components/data-table/entity
 import { useEntityFileMenus } from "@/components/data-table/useEntityFileMenus";
 import { Button } from "@/components/ui/button";
 import type { LaneCostOverride } from "@/components/workspace/tabs/LaneCostsTab";
+import { formatCityState } from "@/lib/formatLocation";
+import { applyBaseMultiplier, formatCost2, pairKey as appliedKey, parseMultiplier } from "@/lib/deliveryCosts";
 
 // Task 11 — delivery-teaching-us's Delivery Costs tab, this model's ONLY
 // editable dataset surface (spec decision 11; inputEntriesForModel's own
@@ -52,6 +54,14 @@ interface DeliveryCostsTabProps {
   /** SCU-2.P4.7 (D2) — browsing result history: cost cells, remove buttons and
    * the add-row trigger are disabled. */
   readOnly?: boolean;
+  /** WQF-C4 — city/state per warehouse and customer id, from the model's dataset (Workspace). The ID stays
+   * first because city names repeat; filter and sort still read the ID (`value`). */
+  locationById?: Record<string, { city: string; state: string }>;
+  /** WQF-C5 — persists Base × multiplier for the filtered rows as ONE scenario write. `appliedKeys` (pairKey of
+   * every row the multiplier set) lets Workspace's size guard say how many rows fit. Omitted = no control. */
+  onApplyCosts?: (next: LaneCostOverride[], appliedKeys: ReadonlySet<string>) => void;
+  /** WQF-C5 — non-null disables Apply and is its title (unsaved edits, a save in flight). */
+  applyBlockedReason?: string | null;
 }
 
 function pairKey(fromId: string, toId: string): string {
@@ -94,7 +104,7 @@ function CostCell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
-  const text = draft ?? (currentValue == null ? "" : String(currentValue));
+  const text = draft ?? (currentValue == null ? "" : formatCost2(currentValue));
 
   function commit() {
     if (draft == null) return;
@@ -140,7 +150,14 @@ export function DeliveryCostsTab({
   scenarioId,
   onImportApplied,
   readOnly = false,
+  locationById,
+  onApplyCosts,
+  applyBlockedReason = null,
 }: DeliveryCostsTabProps) {
+  const named = (id: string) => {
+    const loc = locationById?.[id];
+    return loc ? `${id} · ${formatCityState(loc.city, loc.state)}` : id;
+  };
   const files = useEntityFileMenus({
     entity: "deliveryCosts",
     testIdEntity: "deliverycosts",
@@ -148,6 +165,8 @@ export function DeliveryCostsTab({
     scenarioId,
     onImportApplied,
   });
+  const [multiplierText, setMultiplierText] = useState("");
+  const multiplier = parseMultiplier(multiplierText);
   const [addingRow, setAddingRow] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
@@ -243,6 +262,47 @@ export function DeliveryCostsTab({
     setAddError(null);
   }
 
+  // WQF-C5 — sits right after Download (DataTable renders it after `toolbar.extra`). `filtered` is every row
+  // matching the current filter across all pages; Apply overwrites those rows' Cost and saves once.
+  const renderMultiplier = onApplyCosts
+    ? (filtered: MergedRow[]) => {
+        const blocked = readOnly
+          ? READ_ONLY_TITLE
+          : applyBlockedReason ?? (multiplier == null ? "Enter a multiplier greater than 0" : filtered.length === 0 ? "No rows match the filter" : null);
+        return (
+          <div className="flex items-center gap-1.5" data-testid="deliverycost-multiplier">
+            <span className="text-xs text-muted-foreground">Base ×</span>
+            <Input
+              type="text"
+              inputMode="decimal"
+              aria-label="Base multiplier"
+              value={multiplierText}
+              onChange={e => setMultiplierText(e.target.value)}
+              disabled={readOnly}
+              title={readOnly ? READ_ONLY_TITLE : undefined}
+              className="h-7 w-20 text-xs font-mono"
+              data-testid="input-deliverycost-multiplier"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              disabled={blocked != null}
+              title={blocked ?? `Set Cost = Base × ${multiplier} for ${filtered.length} rows`}
+              onClick={() => {
+                if (multiplier == null) return;
+                const appliedKeys = new Set(filtered.filter(r => r.base != null).map(appliedKey));
+                onApplyCosts(applyBaseMultiplier(laneCostOverrides, filtered, multiplier), appliedKeys);
+              }}
+              data-testid="button-deliverycost-apply-multiplier"
+            >
+              Apply
+            </Button>
+          </div>
+        );
+      }
+    : undefined;
+
   // Rebuilt every render: cells close over live props (see DistancesTab).
   const columns: ColumnDef<MergedRow>[] = [
     {
@@ -252,7 +312,7 @@ export function DeliveryCostsTab({
       filter: "text",
       value: r => r.fromId,
       cellClassName: "text-xs font-mono",
-      cell: r => r.fromId,
+      cell: r => named(r.fromId),
     },
     {
       id: "to",
@@ -261,7 +321,7 @@ export function DeliveryCostsTab({
       filter: "text",
       value: r => r.toId,
       cellClassName: "text-xs font-mono",
-      cell: r => r.toId,
+      cell: r => named(r.toId),
     },
     {
       id: "base",
@@ -269,7 +329,7 @@ export function DeliveryCostsTab({
       kind: "number",
       value: r => r.base,
       cellClassName: "font-mono text-xs",
-      cell: r => (r.base == null ? "—" : r.base),
+      cell: r => (r.base == null ? "—" : formatCost2(r.base)),
     },
     {
       id: "cost",
@@ -404,6 +464,7 @@ export function DeliveryCostsTab({
         scrollClassName="max-h-[55vh] overflow-y-auto"
         loading={referenceQuery.isLoading}
         emptyState={emptyState}
+        renderToolbarAction={renderMultiplier}
       />
       {addRowUi}
       {addError && (

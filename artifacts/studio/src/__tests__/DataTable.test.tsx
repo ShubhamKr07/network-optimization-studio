@@ -4,6 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataTable } from "@/components/data-table/DataTable";
 import { StatusToggle } from "@/components/data-table/entityCells";
+import { ToolbarSaveSlot } from "@/components/data-table/ToolbarSaveSlot";
 import type { ColumnDef, DataTableFocus, DataTableProps } from "@/components/data-table/types";
 
 interface Row {
@@ -813,5 +814,52 @@ describe("DataTable — DU-2.6 affordances", () => {
     expect(screen.getByTestId("sec-b")).toHaveTextContent("Group B");
     expect(screen.getAllByTestId("t-pager")).toHaveLength(1);
     expect(screen.getByTestId("scroll").lastElementChild).toBe(screen.getByTestId("t-pager"));
+  });
+});
+
+describe("DataTable — Workspace Save slot (WQF-C2)", () => {
+  const slot = <button type="button" data-testid="slot-save">Save</button>;
+  const withSlot = (rows: Row[]) =>
+    render(
+      <ToolbarSaveSlot.Provider value={slot}>
+        <DataTable<Row> rows={rows} rowKey={r => r.id} columns={columns} />
+      </ToolbarSaveSlot.Provider>,
+    );
+
+  it("renders the slot immediately right of the Filter trigger", () => {
+    withSlot(makeRows(11));
+    const filter = screen.getByTestId("button-filter-menu-trigger");
+    expect(filter.nextElementSibling).toBe(screen.getByTestId("data-table-save-slot"));
+    expect(within(screen.getByTestId("data-table-save-slot")).getByTestId("slot-save")).toBeInTheDocument();
+  });
+
+  it("still renders the slot, and the toolbar, when Filter is hidden at 10 rows or fewer", () => {
+    withSlot(makeRows(3));
+    expect(screen.queryByTestId("button-filter-menu-trigger")).not.toBeInTheDocument();
+    expect(screen.getByTestId("slot-save")).toBeInTheDocument();
+  });
+
+  it("renders no slot without a provider", () => {
+    renderTable({ rows: makeRows(11) });
+    expect(screen.queryByTestId("data-table-save-slot")).not.toBeInTheDocument();
+  });
+});
+
+describe("DataTable — renderToolbarAction (WQF-C5)", () => {
+  it("receives every row matching the filter across all pages, not just the visible page", async () => {
+    const seen: string[][] = [];
+    renderTable({
+      rows: makeRows(120),
+      renderToolbarAction: filtered => {
+        seen.push(filtered.map(r => r.id));
+        return <span data-testid="action">{filtered.length}</span>;
+      },
+    });
+    expect(screen.getByTestId("action")).toHaveTextContent("120");
+    await userEvent.click(screen.getByTestId("button-filter-menu-trigger"));
+    await userEvent.type(screen.getByTestId("input-filter-id"), "C1");
+    // "C1" matches C1, C10–C19 and C100–C120: 1 + 10 + 21 = 32 rows (the unfiltered 120 above span 3 pages of 50).
+    expect(screen.getByTestId("action")).toHaveTextContent("32");
+    expect(seen.at(-1)).toContain("C120");
   });
 });

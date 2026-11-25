@@ -5628,3 +5628,47 @@ Reported, not bars: screen references without context 0 of 64; replies with LaTe
 
 Measured (computed styles, alpha composited) on the WatBot citation popover `<mark>`: it had no text colour (browser-default black). Dark: text 1.29:1 on the mark, mark vs popover 1.08:1. Light: text 20.25:1 but mark vs white popover 1.04:1. Fix in `WatBotMessages.tsx`: `<mark className="bg-warning/40 text-foreground">` (existing tokens only; one class pair covers the plain and formula-aware segments since both render through this single `<mark>`). After: dark text 5.56:1, mark vs popover 2.63:1; light text 9.86:1, mark vs popover 1.80:1. `e2e/watbot.spec.ts` A8 test now runs for dark and light, asserts text >= 4.5 and highlight >= 1.3 (colours normalised via canvas because computed values are oklab). Red against the old classes in both themes, green after. No other `<mark>` in studio src uses these classes; `bg-warning-bg` elsewhere is a badge/row background and untouched.
 - **WQF-A9 close-out gates (2026-11-25, on `wqf-a` @ `48c9c2ef`):** `pnpm gate` typecheck ✓, api-server 2477/2478 (the one failure `routes` > DELETE /api/scenarios/:id at load avg ~144, a registered load flake; `routes.test.ts` 314/314 ×2 alone), studio 3272/3272, pytest 369/369. Full e2e gate ran on `ce25e557` (A8): 216 expected, 0 unexpected, 3 flaky (registry). After the highlight fix, `watbot.spec.ts` on the final branch: 27/27 (local two-server, `--retries=0`).
+
+## WQF-C1 — Output Map summary above the result cards (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 1; spec Part C1.
+- `components/ui/popover.tsx`: shared `PopoverContent` `z-50` → `z-[1100]`. The Output Map result cards (`OutputMapTab.tsx:447`, `z-[1000]`) sit outside `.leaflet-container`'s `z-index: 0` context, so they out-ranked every popover opened over the map.
+- Caller audit (plan, "C1 — every overlay layer"): five `PopoverContent` callers; only the Output Map ⓘ changes stacking. The one other changed relationship: an open popover now draws over a toast (`z-[100]`) where they overlap — accepted, no caller relies on the reverse.
+- Test: `e2e/wqf-c1-popover-stacking.spec.ts` (real browser; makes the click-through card hit-testable before `elementFromPoint`, asserts overlap first). Red before, green after; reverting to `z-50` turns it red again.
+- Gate: studio typecheck clean; studio vitest 3263 passed (200 files); sibling e2e (output-map-quick-fixes, watbot, import) green (41 passed with the new spec).
+
+## WQF-C3 — Chapter 5 retitled "Network Design Fundamentals" (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 3; spec Part C3.
+- `lib/chapters.ts:94,97`: landing card title and Model Lab header. Manifest name served by `/api/models` unchanged. No test asserted the old string.
+- Test: `lib/chapters.test.ts` (red before, green after).
+- Gate: studio typecheck clean; touched files (chapters, Landing, lockedChapterDrift) 45 passed.
+
+## WQF-C2 — Save beside Filter on input tables (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 2; spec Part C2.
+- `components/data-table/ToolbarSaveSlot.ts` (new context) + `DataTable.tsx`: the Workspace Save cluster renders right of Filter (`data-table-save-slot`), or in Filter's place when Filter is hidden (≤ 10 rows).
+- `Workspace.tsx`: `SAVE_BESIDE_FILTER_TABS` — 31 model/tab pairs where Save showed AND the tab is a DataTable (table in the plan); the cluster (`workspace-save-cluster`: unsaved text, Save, and super's Import network/Export) moves as one unit; the toolbar row renders only where Save stays. Gating, behaviour and `button-save` unchanged; Input Map inline Saves unchanged.
+- Edge states kept in the row: no scenario, no draft yet, empty super network. During a tab's own `Loading…` (dataset not yet loaded) Save is briefly absent on listed tabs — nothing is dirty then.
+- Tests: DataTable slot (RTL); TabCoverage asserts the location of Save on every input tab of seven models plus a 31-pair registry check; Workspace (delivery) and Super QFX-1 rewritten to the cluster; `e2e/wqf-c2-save-beside-filter.spec.ts` (real browser, Filter shown and hidden). Red with `saveBesideFilter && false`, green restored.
+- Gate: studio typecheck clean; touched vitest files (DataTable, TabCoverage, Workspace, Workspace.Super + mutationErrorSurface, rawErrorMessageSurface, historyReadOnlyTabs) 319 passed; wqf-c2 e2e 2/2.
+
+## WQF-C4 — Delivery Cost table: names and two decimals (C4 + C6) (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 4; spec Parts C4, C6.
+- `DeliveryCostsTab.tsx`: From/To cells read `W8 · Atlanta, GA` (ID first; `value` stays the ID, so filter and sort are unchanged); Base and Cost display `formatCost2` (half-up, 2 dp). Hand-typed costs are still stored as typed. Exports are unchanged (raw values).
+- `lib/deliveryCosts.ts` (new): `round2`, `formatCost2`. `Workspace.tsx` passes `chenLocationMapFromInputs(dataset, localInputs)`.
+- Tests: `lib/deliveryCosts.test.ts`; DeliveryCostsTab names/2-dp/as-typed cases (five existing assertions moved to the 2-dp text); Workspace wiring. All red first.
+- Gate: studio typecheck clean; touched vitest files (deliveryCosts, DeliveryCostsTab, Workspace) 212 passed.
+
+## WQF-C5 — Delivery Costs Base multiplier (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 5; spec Part C5.
+- `DeliveryCostsTab.tsx`: "Base ×" box + Apply right after Download. Apply sets Cost = round2(Base × m) for every row matching the filter across all pages (`DataTable`'s new `renderToolbarAction(filteredRows)`), overwriting existing Cost; disabled unless m is a finite number > 0, the filter matches rows, nothing else is unsaved, and no save is in flight.
+- `Workspace.tsx`: `handleApplyDeliveryCosts` → `saveWholeInputsAsync({ laneCostOverrides })` (one PATCH; response becomes the draft); failure toast via `describeWriteError`.
+- Size guard (spec C5): before any state change, `handleApplyDeliveryCosts` measures the exact body the save sends (`wholeInputsBody`, shared with `saveWholeInputsAsync`) in UTF-8 bytes against `MAX_IMPORT_BYTES` (the shared `@workspace/import-schema` constant the server's parser uses; Workspace `writeLimitBytes` prop for tests); over it, nothing is written and a toast says "Filter to N rows or fewer, then apply again." (`rowsThatFit`). Measured (plan "C5 — measured write size"): unfiltered write 463,259 B at ×1, 634,990 B worst case, vs 2,097,152 — today's dataset never reaches the guard; `__tests__/deliveryCostsWriteSize.test.ts` pins it below half the limit.
+- D1 (owner, 2026-11-25): A — no "Adjust Cost Table is off" note. Edited costs change the solve with the toggle off too (`solve.py:1828-1837`, `tests/test_delivery.py:143-152`), so the spec's note would have been false.
+- Tests: helpers (incl. `jsonBytes`/`rowsThatFit` with a synthetic body and injected limit), DataTable render-prop, tab (validation, 10,329 unfiltered, filtered + kept overrides, applied keys, blocked/read-only), Workspace (one write, dirty block, server sentence, over-limit → zero writes + "Filter to 2 rows or fewer"), `e2e/wqf-c5-base-multiplier.spec.ts` (313 rows over 7 pages persisted after reload; 10,329-row PATCH accepted). Non-vacuity: draft-only handler turns the e2e red (no PATCH); handler using `MAX_IMPORT_BYTES` turns the size-guard case red; `/4` turns the write-size pin red.
+- Gate: studio typecheck clean; touched vitest files (deliveryCosts, deliveryCostsWriteSize, DataTable, DeliveryCostsTab, Workspace + mutationErrorSurface, rawErrorMessageSurface, historyReadOnlyTabs) green; wqf-c5 e2e 2/2.
+- **WQF-C close-out gate fix (2026-11-25).** The full studio suite caught `inputMapSaveWiring.test.ts` > "the extracted suppression flag is the one gating the toolbar Save group": a source-reading test that pinned `{showToolbarSave && (`, which C2 legitimately changed to `{showToolbarSave && !saveBesideFilter && (`. C2's agent ran only its touched test files, so it missed this one. The test now asserts both gates carry the flag (the toolbar row, and `saveBesideFilter` built from `showToolbarSave &&`); removing the flag from `saveBesideFilter` turns it red. 6/6.
+- **WQF-C7 close-out gates (2026-11-25, on `wqf-c` @ `04231fc8`):** `pnpm gate` typecheck ✓, api-server 2465/2465, studio 3310/3310 (after the Save-wiring source-test fix above), pytest 369/369. e2e gate (C6-QA, on `1009cf5e`; changes since are one test and docs): 210 expected, 3 unexpected (a transient network drop), 6 flaky; all 9 green alone ×2.

@@ -120,3 +120,12 @@ describe("DU-2.3 demandUnit", () => {
     expect(demandHeader("units", "Demand override")).toBe("Demand override (units)");
   });
 });
+
+describe("chapters — delivery-teaching-us (Chapter 5) title (WQF-C3)", () => {
+  it("reads Network Design Fundamentals on the landing card and the lab header", () => {
+    const chapter = chapterForModelId("delivery-teaching-us");
+    expect(chapter?.chapter).toBe("Chapter 5");
+    expect(chapter?.title).toBe("Network Design Fundamentals");
+    expect(chapter?.labHeaderTitle).toBe("Network Design Fundamentals · Model Lab");
+  });
+});

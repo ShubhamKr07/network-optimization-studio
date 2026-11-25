@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AllProviders } from "@/__tests__/helpers/renderWithExportProvider";
 
@@ -72,7 +72,7 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("row-deliverycost-W1-C1")).toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W1-C2")).toBeInTheDocument();
     expect(screen.getByTestId("row-deliverycost-W2-C1")).toBeInTheDocument();
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
   });
 
   it("shows an override in place of its base value and marks it overridden", () => {
@@ -105,11 +105,11 @@ describe("DeliveryCostsTab", () => {
 
     expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 99 }]);
     // The override value now shows IN PLACE of the blank it replaced...
-    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99");
+    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99.00");
     // ...marked overridden...
     expect(screen.getByTestId("badge-deliverycost-overridden-W1-C1")).toBeInTheDocument();
     // ...while the Base column keeps showing the untouched reference value.
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
   });
 
   it("paginates at 50 rows", () => {
@@ -311,7 +311,7 @@ describe("DeliveryCostsTab", () => {
     };
     render(<Wrapper />);
 
-    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99");
+    expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("99.00");
 
     fireEvent.click(screen.getByTestId("button-remove-deliverycost-W1-C1"));
 
@@ -319,6 +319,118 @@ describe("DeliveryCostsTab", () => {
     expect(screen.getByTestId("input-deliverycost-W1-C1")).toHaveValue("");
     expect(screen.queryByTestId("badge-deliverycost-overridden-W1-C1")).not.toBeInTheDocument();
     // Row stays visible (it's a real base pair) showing the base value.
-    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.5");
+    expect(screen.getByTestId("row-deliverycost-W1-C1")).toHaveTextContent("12.50");
+  });
+});
+
+describe("DeliveryCostsTab — names and two decimals (WQF-C4/C6)", () => {
+  const LOC = { W33: { city: "Springfield", state: "IL" }, C33: { city: "Arlington", state: "TX" } };
+
+  it("shows From/To as `ID · City, ST` and still filters on the ID", () => {
+    mockReferenceCosts(buildPairs(40));
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" locationById={LOC} />);
+    filterText("from", "W33");
+    const row = screen.getByTestId("row-deliverycost-W33-C33");
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent(/^W33 · Springfield, IL$/);
+    expect(cells[1]).toHaveTextContent(/^C33 · Arlington, TX$/);
+    expect(screen.getAllByTestId(/^row-deliverycost-/)).toHaveLength(1);
+  });
+
+  it("falls back to the bare ID when a place is unknown", () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 5 }]);
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" locationById={{}} />);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C1")).getAllByRole("cell")[0]).toHaveTextContent(/^W1$/);
+  });
+
+  it("displays Base and Cost rounded to 2 dp", () => {
+    mockReferenceCosts([
+      { fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 1047.7157 },
+      { fromId: "W1", fromCode: "W1", toId: "C2", toCode: "C2", cost: 1.005 },
+    ]);
+    render(<DeliveryCostsTab laneCostOverrides={[{ fromId: "W1", toId: "C2", cost: 3.14159 }]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C1")).getAllByRole("cell")[2]).toHaveTextContent(/^1047\.72$/);
+    expect(within(screen.getByTestId("row-deliverycost-W1-C2")).getAllByRole("cell")[2]).toHaveTextContent(/^1\.01$/);
+    expect(screen.getByTestId("input-deliverycost-W1-C2")).toHaveValue("3.14");
+  });
+
+  it("stores a hand-typed cost as typed, not rounded", () => {
+    mockReferenceCosts([{ fromId: "W1", fromCode: "W1", toId: "C1", toCode: "C1", cost: 12.5 }]);
+    const onChange = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={onChange} modelId="delivery-teaching-us" />);
+    fireEvent.change(screen.getByTestId("input-deliverycost-W1-C1"), { target: { value: "3.14159" } });
+    fireEvent.blur(screen.getByTestId("input-deliverycost-W1-C1"));
+    expect(onChange).toHaveBeenCalledWith([{ fromId: "W1", toId: "C1", cost: 3.14159 }]);
+  });
+});
+
+describe("DeliveryCostsTab — Base multiplier (WQF-C5)", () => {
+  function setup(pairs: Pair[], props: Partial<ComponentProps<typeof DeliveryCostsTab>> = {}) {
+    mockReferenceCosts(pairs);
+    const onApplyCosts = vi.fn();
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" onApplyCosts={onApplyCosts} {...props} />);
+    return onApplyCosts;
+  }
+  const apply = () => screen.getByTestId("button-deliverycost-apply-multiplier");
+  const typeMultiplier = (v: string) => fireEvent.change(screen.getByTestId("input-deliverycost-multiplier"), { target: { value: v } });
+
+  it.each(["", "0", "-2", "abc", "Infinity"])("disables Apply for %j", v => {
+    setup(buildPairs(3));
+    typeMultiplier(v);
+    expect(apply()).toBeDisabled();
+  });
+
+  it("applies to all 10,329 rows when unfiltered, not just page 1", () => {
+    const onApplyCosts = setup(buildPairs(10329));
+    typeMultiplier("1.5");
+    fireEvent.click(apply());
+    const next = onApplyCosts.mock.calls[0][0] as { fromId: string; toId: string; cost: number }[];
+    expect(next).toHaveLength(10329);
+    expect(next[0]).toEqual({ fromId: "W1", toId: "C1", cost: 15 });
+    expect(next[10328]).toEqual({ fromId: "W33", toId: "C10329", cost: 15507 });
+    expect((onApplyCosts.mock.calls[0][1] as ReadonlySet<string>).size).toBe(10329); // the applied keys, for the size guard
+  });
+
+  it("applies only to the filtered rows and keeps every other override", () => {
+    const keep = { fromId: "W1", toId: "C1", cost: 7 };
+    const onApplyCosts = setup(buildPairs(120), { laneCostOverrides: [keep] });
+    filterText("from", "W33");
+    typeMultiplier("2");
+    fireEvent.click(apply());
+    expect(onApplyCosts).toHaveBeenCalledWith(
+      [
+        keep,
+        { fromId: "W33", toId: "C33", cost: 84 },
+        { fromId: "W33", toId: "C66", cost: 150 },
+        { fromId: "W33", toId: "C99", cost: 216 },
+      ],
+      new Set(["W33|C33", "W33|C66", "W33|C99"]), // applied keys only; the kept override is not one
+    );
+  });
+
+  it("is disabled when the filter matches nothing", () => {
+    setup(buildPairs(40));
+    filterText("from", "ZZZ");
+    typeMultiplier("2");
+    expect(apply()).toBeDisabled();
+  });
+
+  it("is disabled, with Workspace's reason as its title, when Workspace blocks it", () => {
+    setup(buildPairs(3), { applyBlockedReason: "Save your changes first" });
+    typeMultiplier("2");
+    expect(apply()).toBeDisabled();
+    expect(apply()).toHaveAttribute("title", "Save your changes first");
+  });
+
+  it("is read-only while browsing history", () => {
+    setup(buildPairs(3), { readOnly: true });
+    expect(screen.getByTestId("input-deliverycost-multiplier")).toBeDisabled();
+    expect(apply()).toBeDisabled();
+  });
+
+  it("renders no multiplier without onApplyCosts", () => {
+    mockReferenceCosts(buildPairs(3));
+    render(<DeliveryCostsTab laneCostOverrides={[]} onChange={vi.fn()} modelId="delivery-teaching-us" />);
+    expect(screen.queryByTestId("input-deliverycost-multiplier")).not.toBeInTheDocument();
   });
 });

@@ -112,8 +112,14 @@ describe("Input Map Layers-row Save — wiring", () => {
   // the step toggle deleted, the row's own render condition collapses to
   // exactly `showToolbarSave` — the same flag gates both the row and the
   // Save group inside it now.
+  // WQF-C2 — Save now renders in one of two places, both still gated by the
+  // extracted flag: the toolbar row (when it does not move) and the table
+  // toolbar beside Filter (`saveBesideFilter`, itself built from
+  // `showToolbarSave &&`). Either losing the flag would bring back a second
+  // Save on the Input Map.
   it("the extracted suppression flag is the one gating the toolbar Save group", () => {
     expect(WORKSPACE_SRC).toContain("const showToolbarSave =");
-    expect(WORKSPACE_SRC).toContain("{showToolbarSave && (");
+    expect(WORKSPACE_SRC).toContain("{showToolbarSave && !saveBesideFilter && (");
+    expect(WORKSPACE_SRC).toMatch(/const saveBesideFilter =\s*showToolbarSave &&/);
   });
 });
