@@ -38,12 +38,12 @@ export type GradedRow = {
   labelType: WatBotMessageType | null;     // test-set label; null for persona turns
   recordedType: WatBotMessageType | null;  // what the model recorded; null = skipped
   leak: boolean; reasons: string[]; endsWithQuestion: boolean; costUsd: number;
-  claimsRemoved: number; forwardedBlocks: number;
+  claimsRemoved: number; valuesBlocked: number; forwardedBlocks: number;
 };
 export type Bucket = WatBotMessageType | "unrecorded";
 export type BucketReport = {
   bucket: Bucket; n: number; labelled: number; leaks: number; leakRate: number;
-  agreement: number | null; skippedRecordRate: number; endsWithQuestionRate: number; claimRemovedRate: number; emptyReplyRate: number; costUsd: number;
+  agreement: number | null; skippedRecordRate: number; endsWithQuestionRate: number; claimRemovedRate: number; valueBlockedRate: number; emptyReplyRate: number; costUsd: number;
 };
 
 // PRD bars (spec §7): zero leaks where the student is stuck or wrong; "a few
@@ -70,6 +70,7 @@ export function buildReport(rows: GradedRow[]): BucketReport[] {
       skippedRecordRate: share(rs.filter((r) => r.recordedType === null).length),
       endsWithQuestionRate: share(rs.filter((r) => r.endsWithQuestion).length),
       claimRemovedRate: share(rs.filter((r) => r.claimsRemoved > 0).length),
+      valueBlockedRate: share(rs.filter((r) => r.valuesBlocked > 0).length),
       emptyReplyRate: share(rs.filter((r) => r.forwardedBlocks === 0).length),
       costUsd: rs.reduce((sum, r) => sum + r.costUsd, 0),
     };

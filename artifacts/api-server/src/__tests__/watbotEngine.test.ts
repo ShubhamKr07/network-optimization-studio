@@ -9,7 +9,7 @@ import { logger } from "../lib/logger.js";
 import { extractNumbers, matchesValue } from "../watbot/numbers.js";
 import { facilityNames } from "../watbot/facilities.js";
 import { buildRequest, NO_CONTEXT, FORCE_RECORD_MODELS, REPAIR_RULES, REPLY_RULES, excludedTypeResult, repairQuestion, SEARCH_LIMIT_RESULT, TOOLS } from "../watbot/prompt.js";
-import { answerQuestion, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
+import { answerQuestion, CLAIM_REMOVED_NOTICE, MAX_REQUEUES, MAX_ROUNDS, setTransientBackoffForTests, TRANSIENT_BACKOFF_MS, type AnswerInput, type EngineEvent, type RoundGate } from "../watbot/engine.js";
 import type { WatBotClient } from "../watbot/client.js";
 import { WATBOT_MESSAGE_TYPES } from "@workspace/db";
 
@@ -308,7 +308,7 @@ describe("answerQuestion", () => {
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(DECLINE)]);
     const r = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
     expect(DECLINE.split(/\s+/).length).toBeGreaterThanOrEqual(12); // non-vacuity: long enough to be dropped otherwise
-    expect(r).toMatchObject({ messageType: "off_topic", claimsRemoved: 0 });
+    expect(r).toMatchObject({ messageType: "off_topic", claimsRemoved: 0, valuesBlocked: 0 });
     expect(r.blocks.map((b) => b.text)).toEqual([DECLINE]);
     expect(events.some((e) => e.type === "notice")).toBe(false);
   });
@@ -336,7 +336,29 @@ describe("answerQuestion", () => {
     const leaky = "That is off topic, but the optimal network costs 1,234,567 dollars in total.";
     const client = fakeClient([toolRound("t1", "record_message_type", { type: "off_topic" }), answerRound(leaky)]);
     const r = await answerQuestion(baseInput(client));
-    expect(r).toMatchObject({ claimsRemoved: 1, blocks: [] });
+    expect(r).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1, blocks: [] });
+  });
+
+  // WQF-A1: the two reasons a block is dropped are counted apart; one notice covers the answer.
+  const citedLoc = { type: "content_block_location", cited_text: "x", document_index: 0, document_title: "Chapter 3", start_block_index: 0, end_block_index: 1 };
+  it("counts an uncited claim and a blocked value apart, with one notice for the answer", async () => {
+    const client = fakeClient([{ events: [
+      ...textBlock(0, "Open-site counts scale roughly with the square root of demand points in this dataset overall.", []),
+      ...textBlock(1, "The total cost is 1,234,567 in this solution.", [citedLoc]),
+      ...textBlock(2, "What would happen with p = 1?", []),
+    ], final: { stop_reason: "end_turn" } }]);
+    const events: EngineEvent[] = [];
+    const r = await answerQuestion(baseInput(client, { emit: (e) => events.push(e) }));
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 1 });
+    expect(r.blocks.map((b) => b.text)).toEqual(["What would happen with p = 1?"]);
+    expect(events.filter((e) => e.type === "notice")).toEqual([{ type: "notice", kind: "claim_removed" }]);
+  });
+  it("counts an uncited block that also carries an unseen value under both reasons", async () => {
+    const r = await answerQuestion(baseInput(fakeClient([answerRound("Every plant should ship 25,000 tons on the cheapest lane to cover the remaining demand in full.")])));
+    expect(r).toMatchObject({ claimsRemoved: 1, valuesBlocked: 1, blocks: [] });
+  });
+  it("words the drop notice for both reasons", () => {
+    expect(CLAIM_REMOVED_NOTICE).toBe("Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.");
   });
 
   it("forwards cited blocks, drops uncited claims once, keeps guiding questions; a skipped type call leaves messageType null", async () => {
@@ -457,7 +479,7 @@ describe("answerQuestion", () => {
     const events: EngineEvent[] = [];
     const hidden = await answerQuestion(baseInput(fakeClient(round()), { emit: (e) => events.push(e) }));
     expect(hidden.blocks).toHaveLength(0);
-    expect(hidden.claimsRemoved).toBe(1);
+    expect(hidden).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1 });
     expect(events).toContainEqual({ type: "notice", kind: "claim_removed" });
     const shown = await answerQuestion(baseInput(fakeClient(round()), { shownFacts: "objective 1234567" }));
     expect(shown.blocks).toHaveLength(1); // non-vacuity: the citation itself is accepted, only the value decides
@@ -559,7 +581,7 @@ describe("answerQuestion", () => {
     };
     const hidden = await run("");
     expect(hidden.result.blocks).toEqual([]);
-    expect(hidden.result.claimsRemoved).toBe(1);
+    expect(hidden.result).toMatchObject({ claimsRemoved: 0, valuesBlocked: 1 });
     expect(hidden.events).toEqual([{ type: "notice", kind: "claim_removed" }]);
     const shown = await run("objective 1234567");
     expect(shown.result.blocks.map((b) => b.text)).toEqual([leak]);

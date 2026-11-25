@@ -21,6 +21,8 @@ export function setTransientBackoffForTests(ms: readonly number[] | null): void 
 export const STOPPED_NOTICE = "Answer stopped"; // D22: notice row after a stopped answer
 export const FAILED_NOTICE = "WatBot couldn't finish this answer."; // D22: notice row after a provider failure
 export const REFUSED_NOTICE = "I can't help with that one.";
+// WQF-A1: one notice for both drop reasons (uncited claim, or an unseen value or site).
+export const CLAIM_REMOVED_NOTICE = "Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.";
 
 export type EngineEvent =
   | { type: "searching"; query: string }
@@ -50,7 +52,9 @@ export type AnswerInput = {
 // Every ending is a result, never a throw (D22): done, refused, stopped, failed.
 export type AnswerResult = {
   blocks: WatBotBlock[];                   // exactly what was forwarded to the student
-  claimsRemoved: number; usage: WatBotUsage;
+  claimsRemoved: number;                   // uncited blocks dropped (FR-17)
+  valuesBlocked: number;                   // blocks dropped by the D20 value check, cited or not (WQF-A1)
+  usage: WatBotUsage;
   refused: boolean;                        // stop_reason "refusal"
   stopped: boolean;                        // aborted (Stop, disconnect, or Stop while re-queued)
   failure: AnswerFailure | null;
@@ -65,7 +69,7 @@ export const zeroUsage = (model: string): WatBotUsage =>
 // The shape the route finalises when the question never reached the engine
 // (stopped while still waiting for its first in-flight slot).
 export const emptyAnswerResult = (model: string, extra: Partial<AnswerResult> = {}): AnswerResult => ({
-  blocks: [], claimsRemoved: 0, usage: zeroUsage(model), refused: false, stopped: false,
+  blocks: [], claimsRemoved: 0, valuesBlocked: 0, usage: zeroUsage(model), refused: false, stopped: false,
   failure: null, reachedModel: false, messageType: null, gapTopic: null, ...extra,
 });
 
@@ -140,13 +144,16 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
         const b = open.get(ev.index);
         if (!b || !b.text.trim()) continue;
         open.delete(ev.index);
-        // Cited, or an uncited question / short connective (FR-17), or the off-topic decline,
-        // which is uncited by design: forward only if it also carries no unseen value or
-        // site (D20, revised 2026-11-22: cited blocks too).
-        const keep = (b.citations.length > 0 || keepUncitedBlock(b.text) || out.messageType === "off_topic")
-          && passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
-        if (keep) { out.blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
-        else if (out.claimsRemoved++ === 0) input.emit({ type: "notice", kind: "claim_removed" });
+        // Kept when cited, or an uncited question / short connective (FR-17) or the off-topic
+        // decline, which is uncited by design; and, cited or not, when it carries no unseen value
+        // or site (D20, revised 2026-11-22). WQF-A1: each reason has its own counter; one notice.
+        const uncited = !(b.citations.length > 0 || keepUncitedBlock(b.text) || out.messageType === "off_topic");
+        const blocked = !passesValueCheck(b.text, input.facilityNames, input.shownFacts ?? "");
+        const firstDrop = out.claimsRemoved + out.valuesBlocked === 0;
+        if (uncited) out.claimsRemoved++;
+        if (blocked) out.valuesBlocked++;
+        if (!uncited && !blocked) { out.blocks.push(b); roundForwardedChars += b.text.length; input.emit({ type: "block", block: b }); }
+        else if (firstDrop) input.emit({ type: "notice", kind: "claim_removed" });
       }
     }
     const final = await stream.finalMessage();

@@ -7,7 +7,7 @@ export type ChatItem = { kind: "student" | "tutor" | "notice"; id?: number; key?
 export type Pending = { searching: string | null; queued?: number };
 const API = `${(import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "")}/api`;
 const NOTICE_TEXT = {
-  claim_removed: "One claim was removed — I couldn't support it with a course source.",
+  claim_removed: "Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.",
   gap_logged: "gap logged for the teaching team",
 } as const;
 // D22 — same text as the server's notice row (engine.ts STOPPED_NOTICE), shown at once on Stop.

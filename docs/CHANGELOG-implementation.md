@@ -5548,3 +5548,15 @@ Branch `watbot-popover-inline-math`. A live check of WATBOT-POPOVER-KATEX (owner
 - **Corpus check of the backslash rule (read-only `render psql`, snippets only).** Every single-`$` span outside `$$…$$` that does not start with a backslash — 36 distinct spans, the whole set — is the stretch between two prices in prose ("$12 million, $", "$1.70 or $", "$/mile"); none is backslash-less inline math such as `$X_i$` or `$P$`. So the 30-page loose count was prices plus the 5 `$\cmd$` pages, and the rule renders every inline formula in the corpus while leaving prices alone. Backslash-less inline math added to the corpus later would show raw.
 - **Gate:** first `pnpm gate` run hit the `routes` load flake (flake registry); the re-gate after the review fold, 0 concurrent vitest: api-server 2465/2465, studio 3263/3263, pytest 369/369, typecheck clean.
 - **Deployed (2026-11-24).** Pushed `main` `17c31523..599b9c52` (with the WATBOT-POPOVER-KATEX nos-studio deploy record; Design Upgrade session told first, no conflict); no webhook build. Preflight: nos-studio only, nos-api unchanged, no schema change, no migrations, no new env vars. Triggered nos-studio by API; `599b9c52` went live at 12:02:31 UTC. `/compare` returned 200 with `id="root"`. **Live check** (the owner's saved Ch 3 conversation, reopened from history, so no new question): the Ch 3 · p.50 popover opened fully on screen (top 373, bottom 631 in an 801 px window), its quote scrolls, 9 formulas render including `\forall`, and no raw `$\cmd` or `$$` is left.
+
+## WQF-A — WatBot QFs, Part A (2026-11-25)
+
+Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design.md` (Part A). Plan: `docs/superpowers/plans/2026-11-25-wqf-a-watbot.md`.
+
+### WQF-A1 — two drop counters, one honest notice
+
+- **Engine:** `claimsRemoved` (uncited) and new `valuesBlocked` (D20 value check, cited or not) count apart. One block can count under both (plan P1). One `claim_removed` notice per answer, on the first drop of either kind. The stored notice now fires on either counter (`routes/watbot.ts`), and its text moved to `engine.ts` as `CLAIM_REMOVED_NOTICE`, the spec's wording. The studio's live notice text matches.
+- **Log:** `WatBot: answer saved` with `{ claimsRemoved, valuesBlocked }` for every answer that reached the model. Counts only.
+- **Test set:** a per-type `valuesBlocked` column beside `claimRemoved`; the smoke CLI prints `blocked`.
+- **Tests:** engine (4 changed expectations; new "counts an uncited claim and a blocked value apart…", "counts an uncited block that also carries an unseen value under both reasons", "words the drop notice for both reasons"), grader ("reports the values-blocked rate apart…"), route (value-only drop stores the notice and logs counts), studio hook ("shows the drop notice in the server's wording"). Red before: 9 api-server + 1 studio failures; green after.
+- **Gate:** per-task only (lead gates): watbotEngine/EvalGrader/Routes files green (routes 40/40 alone; one load-flake sighting of the re-answer test in the 3-file run, passed alone), studio hook + messages files 27/27, `tsc --build` + api-server typecheck clean.

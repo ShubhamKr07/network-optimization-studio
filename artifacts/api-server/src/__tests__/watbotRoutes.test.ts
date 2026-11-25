@@ -1,5 +1,5 @@
 // artifacts/api-server/src/__tests__/watbotRoutes.test.ts
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { setLockedModelsForTests } from "../middlewares/lockedModel.js";
 import request from "supertest";
 import type { AddressInfo } from "node:net";
@@ -15,7 +15,8 @@ import {
 } from "../watbot/limits.js";
 import { WATBOT_ERROR_CODES } from "../watbot/errors.js";
 import { REPAIR_LABELS } from "../watbot/prompt.js";
-import { FAILED_NOTICE, STOPPED_NOTICE, setTransientBackoffForTests } from "../watbot/engine.js";
+import { CLAIM_REMOVED_NOTICE, FAILED_NOTICE, STOPPED_NOTICE, setTransientBackoffForTests } from "../watbot/engine.js";
+import { logger } from "../lib/logger.js";
 import { SUPER_DEFAULT_INPUTS } from "../validation/inputs/superInputs.js";
 
 const userIds: string[] = [];
@@ -462,10 +463,16 @@ describe("watbot routes", () => {
     }).returning();
     try {
       const id = await newConversation(cookie, "super-model");
+      const info = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
       const res = await request(app).post(`/api/watbot/conversations/${id}/messages`).set("Cookie", cookie)
         .send({ question: "Which sites?", context: { tab: "cost-summary", scenarioId: scenario!.id } });
       expect(res.text).not.toContain("event: block");
       expect(res.text).toContain('"kind":"claim_removed"');
+      // WQF-A1: a value-only drop still stores the notice, and the counts are logged, never text.
+      const notices = (await rows(id)).filter((r) => r.role === "notice").map((r) => r.blocks[0]!.text);
+      expect(notices).toEqual([CLAIM_REMOVED_NOTICE]);
+      expect(info).toHaveBeenCalledWith({ claimsRemoved: 0, valuesBlocked: 1 }, "WatBot: answer saved");
+      info.mockRestore();
       expect((await rows(id)).find((r) => r.role === "tutor")!.blocks).toEqual([]);
     } finally {
       await db.delete(scenariosTable).where(eq(scenariosTable.id, scenario!.id));

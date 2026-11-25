@@ -18,7 +18,7 @@ import { WatBotMessages } from "@/components/workspace/watbot/WatBotMessages";
 const items = [
   { kind: "student" as const, blocks: [{ text: "Why?", citations: [] }] },
   { kind: "tutor" as const, id: 9, blocks: [{ text: "Demand weights distance", citations: [{ passageId: 11, label: "Ch 3 · p.38", citedText: "P-median minimizes demand-weighted distance." }] }] },
-  { kind: "notice" as const, blocks: [{ text: "One claim was removed — I couldn't support it with a course source.", citations: [] }] },
+  { kind: "notice" as const, blocks: [{ text: "Part of this answer was removed: it wasn't backed by a course source, or it gave away a result.", citations: [] }] },
 ];
 
 describe("WatBotMessages", () => {
@@ -27,7 +27,7 @@ describe("WatBotMessages", () => {
     render(<WatBotMessages items={items} pending={null} onStop={vi.fn()} />);
     expect(screen.getByText("Why?").closest("[data-role]")).toHaveAttribute("data-role", "student");
     expect(screen.getByText(/Demand weights distance/).closest("[data-role]")).toHaveAttribute("data-role", "tutor");
-    expect(screen.getByText(/One claim was removed/).closest("[data-role]")).toHaveAttribute("data-role", "notice");
+    expect(screen.getByText(/Part of this answer was removed/).closest("[data-role]")).toHaveAttribute("data-role", "notice");
   });
 
   it("citation chip opens a popover with the cited passage and the full source", () => {

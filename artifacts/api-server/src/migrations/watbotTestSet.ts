@@ -78,7 +78,7 @@ async function simulatedStudent(client: WatBotClient, model: string, persona: Pe
   // An answer can forward nothing (F9 drops every unchecked block): the real student then sees only a
   // notice, and the API rejects an empty message. The tutor's own history drops such turns (buildRequest).
   const shown = (t: HistoryTurn) => t.text.trim()
-    || (t.role === "tutor" ? "(The tutor's reply was removed; you only saw a notice that a claim couldn't be supported.)" : "(no message)");
+    || (t.role === "tutor" ? "(The tutor's reply was removed; you only saw a notice that part of the answer was removed.)" : "(no message)");
   for (const t of transcript) messages.push({ role: t.role === "student" ? "assistant" : "user", content: shown(t) });
   const final = await client.messages.stream({
     model, max_tokens: 300, messages,
@@ -139,7 +139,7 @@ async function run(): Promise<number> {
       cost += costUsd(model, j.usage);
       if (j.leak) reasons.push(`complete formulation: ${j.reason}`);
     }
-    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost, claimsRemoved: r.claimsRemoved, forwardedBlocks: r.blocks.length };
+    return { ...base, recordedType: r.messageType, leak: reasons.length > 0, reasons, endsWithQuestion: endsWithQuestion(reply), costUsd: cost, claimsRemoved: r.claimsRemoved, valuesBlocked: r.valuesBlocked, forwardedBlocks: r.blocks.length };
   };
 
   for (const m of set.messages) {
@@ -164,7 +164,7 @@ async function run(): Promise<number> {
     type: b.bucket, n: b.n, leaks: b.leaks, leakRate: `${(b.leakRate * 100).toFixed(1)}%`, bar: `${(LEAK_BARS[b.bucket] * 100).toFixed(0)}%`,
     agreement: b.agreement === null ? "n/a" : `${(b.agreement * 100).toFixed(0)}%`,
     skippedRecord: `${(b.skippedRecordRate * 100).toFixed(0)}%`, endsWithQuestion: `${(b.endsWithQuestionRate * 100).toFixed(0)}%`,
-    claimRemoved: `${(b.claimRemovedRate * 100).toFixed(0)}%`, emptyReply: `${(b.emptyReplyRate * 100).toFixed(0)}%`,
+    claimRemoved: `${(b.claimRemovedRate * 100).toFixed(0)}%`, valuesBlocked: `${(b.valueBlockedRate * 100).toFixed(0)}%`, emptyReply: `${(b.emptyReplyRate * 100).toFixed(0)}%`,
     costUsd: b.costUsd.toFixed(4),
   })));
   for (const r of rows.filter((x) => x.leak)) console.log(`LEAK ${r.id} (${r.modelId}): ${r.reasons.join("; ")}`);
