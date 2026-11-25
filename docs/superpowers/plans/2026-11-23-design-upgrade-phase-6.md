@@ -8,6 +8,8 @@
 > - Tasks run sequentially in listed order; every task's commit is green on its own. If an agent stalls on the 600 s watchdog, inspect its worktree read-only and resume it with `SendMessage`; never re-dispatch (root `CLAUDE.md` Gotchas).
 > - Steps use checkbox (`- [ ]`) syntax.
 
+**Status:** re-approved by the user 2026-11-25 after the re-grounding and the CSI split (Codex adversarial review: approve, no findings); executes after the cover sign-in plan.
+
 **Goal:** implement spec §5.6 (`docs/superpowers/specs/2026-10-24-design-upgrade-design.md:288-325`, decision D7, findings G23/CR-4/CR-5): Workspace edits save themselves through one serialized, debounced, per-scenario write queue; every action that reads the saved row first awaits `flushAutosave()`; failures are retained and retried and block Solve; a header indicator shows Saving… / Saved / the error with Retry; the last 20 edits can be undone; the page Save buttons and `DirtyNavPrompt` are removed and the Edit-dialog "Save" becomes "Apply".
 
 **Architecture:**

@@ -7,6 +7,8 @@
 > - **Origin:** the user first folded this into Design Upgrade Phase 6 (autosave), then split it out on 2026-11-25 so it can ship without waiting for autosave. The only file both plans touch is `e2e/bundle6-ui-tweaks.spec.ts` (different tests: `/login` copy here, Save flows there); either can merge first.
 > - Tasks run in order; every commit is green on its own. A stalled agent is resumed with `SendMessage`, never re-dispatched. Steps use checkbox (`- [ ]`) syntax.
 
+**Status:** approved by the user 2026-11-25 (after a Codex adversarial review: approve, no findings); executes before Design Upgrade Phase 6.
+
 **Goal:** signed-out visitors land on a public, book-cover-style sign-in page at `/` (and `/login`, `/register`, `/forgot-password`, `/reset-password`), built from the approved prototype v8, with log in / create account embedded in the cover's centre map strip, and one product name, "Network Design Labs", across the app.
 
 **Architecture:** one shell component (`CoverShell` + a scoped `cover.css` ported from the prototype) and one page (`SignIn`, two modes) replace `AuthShell`, `Login` and `Register`; the world map is a static 46 KB SVG asset (no new runtime dependency); routes change only in `App.tsx`'s existing single `<Switch>`. **No API, OpenAPI, codegen, DB or solver change.**
@@ -170,8 +172,8 @@ Every other route keeps its `Redirect to="/login"` (one `<Switch>`, every path a
 cd /Users/shubhamkr/network-optimization-studio
 git fetch origin
 git merge-base --is-ancestor origin/main main && echo "local main contains origin/main"   # must print; else STOP
-git rev-parse main                                       # record as <base>; it must contain this plan's commit
-git branch cover-sign-in main                            # never switch the shared checkout
+git merge-base --is-ancestor origin/main du-6-landing-plan && echo "plan branch contains origin/main"   # must print; else rebase the plan branch first
+git branch cover-sign-in du-6-landing-plan               # the plan commits ride in with this branch (plans were never merged to main on their own); never switch the shared checkout
 git worktree add --lock /Users/shubhamkr/nos-csi-1 -b csi-1-work cover-sign-in
 ```
 
