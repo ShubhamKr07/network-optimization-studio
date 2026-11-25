@@ -91,10 +91,10 @@ export const CHAPTERS: Chapter[] = [
     modelId: "delivery-teaching-us",
     demandUnit: "units",
     chapter: "Chapter 5",
-    title: "Introduction to Network Design",
+    title: "Network Design Fundamentals",
     description: "Facility location driven by a cost table: open three DCs to minimise delivery cost, then watch the network change when long lanes are repriced.",
     workspace: true,
-    labHeaderTitle: "Introduction to Network Design · Model Lab",
+    labHeaderTitle: "Network Design Fundamentals · Model Lab",
     labHeaderSubtitle: "Ch 5 · p-median · cost table vs distance table",
   },
   {

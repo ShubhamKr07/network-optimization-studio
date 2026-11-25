@@ -5556,3 +5556,10 @@ Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 1; spec Part C
 - Caller audit (plan, "C1 — every overlay layer"): five `PopoverContent` callers; only the Output Map ⓘ changes stacking. The one other changed relationship: an open popover now draws over a toast (`z-[100]`) where they overlap — accepted, no caller relies on the reverse.
 - Test: `e2e/wqf-c1-popover-stacking.spec.ts` (real browser; makes the click-through card hit-testable before `elementFromPoint`, asserts overlap first). Red before, green after; reverting to `z-50` turns it red again.
 - Gate: studio typecheck clean; studio vitest 3263 passed (200 files); sibling e2e (output-map-quick-fixes, watbot, import) green (41 passed with the new spec).
+
+## WQF-C3 — Chapter 5 retitled "Network Design Fundamentals" (2026-11-25)
+
+Plan `docs/superpowers/plans/2026-11-25-wqf-c-studio-ch5.md` Task 3; spec Part C3.
+- `lib/chapters.ts:94,97`: landing card title and Model Lab header. Manifest name served by `/api/models` unchanged. No test asserted the old string.
+- Test: `lib/chapters.test.ts` (red before, green after).
+- Gate: studio typecheck clean; touched files (chapters, Landing, lockedChapterDrift) 45 passed.
