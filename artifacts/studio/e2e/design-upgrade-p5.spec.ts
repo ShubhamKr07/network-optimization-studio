@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import type { BrowserContext } from "@playwright/test";
 import { test, expect, type Page } from "./fixtures";
 import { seedSolvedResult } from "./helpers/seedSolvedResult";
+import { measureCoverContrast } from "./helpers/coverContrast";
 import { SOLVED_MODEL_INPUTS, SUPER_SAMPLE_PATH } from "./helpers/solvedModelInputs";
 import { CHAPTERS } from "../src/lib/chapters";
 
@@ -863,21 +864,29 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     }
   });
 
-  test("Landing, login, register in both themes: legible, no white surfaces in dark; screenshots", async ({ page }) => {
+  test("Landing, login, register in both themes: the auth pages stay light and legible under dark, Landing follows dark; screenshots", async ({ page }) => {
     test.setTimeout(120_000);
     await scheme(page, "light");
+    // CSI-1/L6 reversed "auth pages follow the theme": the cover is LIGHT ONLY. Under a dark OS
+    // scheme html.dark is still applied (the theme mechanism is global), but the page itself must
+    // stay on its own light palette and stay legible. (legibilityScan cannot measure the cover's
+    // gradient surfaces, so contrast comes from helpers/coverContrast.ts.)
     for (const route of ["/login", "/register"]) {
       await page.goto(route);
-      await expect(page.locator("form").first()).toBeVisible({ timeout: T });
+      await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: T });
+      const lightBg = await page.getByTestId("cover-shell").evaluate(el => getComputedStyle(el).backgroundColor);
       await shot(page, `page-${route.slice(1)}-light.png`);
       await scheme(page, "dark");
       await expectTheme(page, true);
       await settle(page);
       await shot(page, `page-${route.slice(1)}-dark.png`);
-      const scan = await legibilityScan(page);
-      expect(scan.checked, `${route}: text nodes measured`).toBeGreaterThan(5);
-      expect(scan.findings, `${route}: text under 3:1 on its background`).toEqual([]);
-      expect(scan.whiteSurfaces, `${route}: opaque white surfaces in dark`).toEqual([]);
+      const darkBg = await page.getByTestId("cover-shell").evaluate(el => getComputedStyle(el).backgroundColor);
+      expect(darkBg, `${route}: the cover does not go dark with the app theme`).toBe("rgb(234, 243, 232)");
+      expect(darkBg, `${route}: same paper in both schemes`).toBe(lightBg);
+      expect(await page.getByTestId("cover-shell").evaluate(el => getComputedStyle(el).colorScheme), `${route}: color-scheme`).toBe("light");
+      const cover = await measureCoverContrast(page);
+      expect(cover.checked, `${route}: text nodes measured`).toBeGreaterThan(8);
+      expect(cover.findings, `${route}: text under 4.5:1 on its surface`).toEqual([]);
       await scheme(page, "light");
     }
     await registerAndGoHome(page);
@@ -987,16 +996,17 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
   test("Q9 + shared controls in dark: Alert, destructive fill, disabled control, focus ring are legible; unused shadcn pieces are reported", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     await scheme(page, "dark");
-    await page.goto("/login");
-    await expect(page.locator("form").first()).toBeVisible({ timeout: T });
+    // CSI-1: /login no longer renders shadcn Alert/Input (the cover is light-only, L6). The one live
+    // shadcn Alert is the delete-account dialog's error, reachable from the signed-in Landing footer.
+    await registerAndGoHome(page);
     await expectTheme(page, true);
 
-    // Alert (Q9: `dark:border-destructive`): trigger the real login error.
-    await page.getByTestId("input-email").fill("nobody@example.com");
-    await page.getByTestId("input-password").fill("wrong-password-1");
-    await page.getByTestId("checkbox-accept-terms").check({ timeout: 10_000 });
-    await page.getByTestId("button-login").click();
-    const alert = page.getByTestId("alert-login-error");
+    // Alert (Q9: `dark:border-destructive`): trigger the real wrong-password error.
+    await page.getByTestId("homepage-credit-footer").getByTestId("link-delete-account").click({ timeout: T });
+    await expect(page.getByTestId("dialog-delete-account")).toBeVisible({ timeout: T });
+    await page.getByTestId("input-delete-password").fill("wrong-password-1");
+    await page.getByTestId("button-confirm-delete").click({ timeout: T });
+    const alert = page.getByTestId("alert-delete-error");
     await expect(alert).toBeVisible({ timeout: T });
     const al = await alert.evaluate(el => { const cs = getComputedStyle(el); const d = el.querySelector("[data-slot='alert-description'], div") as HTMLElement; return { bg: cs.backgroundColor, bd: cs.borderTopColor, fg: cs.color, dfg: getComputedStyle(d ?? el).color }; });
     const destructive = await resolveColor(page, "hsl(var(--destructive))");
@@ -1004,7 +1014,7 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     const bg = parseRgb(await bodyBg(page));
     expect(contrast(parseRgb(al.fg), bg), "alert title text vs page (Q3 known exception: >= 3:1)").toBeGreaterThanOrEqual(3);
     testInfo.annotations.push({ type: "q3", description: `destructive text on dark bg = ${contrast(destructive, bg).toFixed(2)}:1 (documented 3.7:1 exception)` });
-    await shot(page, "q9-alert-login-error-dark.png");
+    await shot(page, "q9-alert-delete-error-dark.png");
 
     // Destructive fill + its foreground (no live destructive <Button>: measured through the real utility classes)
     const fill = await page.evaluate(() => { const b = document.createElement("button"); b.className = "bg-destructive text-destructive-foreground"; document.body.appendChild(b); const cs = getComputedStyle(b); const r = { bg: cs.backgroundColor, fg: cs.color }; b.remove(); return r; });
@@ -1015,11 +1025,11 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     expect(+dis.op, "disabled control is visibly dimmed but not erased").toBeGreaterThan(0.3);
     expect(+dis.op).toBeLessThan(1);
 
-    // Focus ring: Tab onto the email field and read the real ring.
-    await page.getByTestId("input-email").focus();
+    // Focus ring: Tab onto the dialog's password field (a shadcn Input) and read the real ring.
+    await page.getByTestId("input-delete-password").focus();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
-    const ring = await page.getByTestId("input-email").evaluate(el => { const cs = getComputedStyle(el); return { shadow: cs.boxShadow, outline: cs.outlineColor, outlineStyle: cs.outlineStyle, bc: cs.borderTopColor }; });
+    const ring = await page.getByTestId("input-delete-password").evaluate(el => { const cs = getComputedStyle(el); return { shadow: cs.boxShadow, outline: cs.outlineColor, outlineStyle: cs.outlineStyle, bc: cs.borderTopColor }; });
     const ringRgb = await resolveColor(page, "hsl(var(--ring))");
     const channels = (c: string): Rgb[] => [...c.matchAll(/rgba?\(\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)/g)].map(m => [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])] as Rgb);
     const inShadow = channels(ring.shadow).some(c => near(c, ringRgb, 2));

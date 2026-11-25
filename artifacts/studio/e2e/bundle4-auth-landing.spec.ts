@@ -2,9 +2,9 @@
  * Browser E2E — Bundle 4 (auth split-screen + live Landing summary).
  *
  * Covers:
- *   1. The unauthenticated auth split-screen (`/login`, `/register`) —
- *      cover panel, heading/kicker, labs strip, dev-credit links, absence
- *      of the global AppFooter, and the login-error / password-hint paths.
+ *   1. The unauthenticated cover sign-in page (`/login`, `/register`; CSI-1
+ *      replaced the split-screen) — h1, offered-by credit links, developer help
+ *      link, absence of the global AppFooter, and the login-error / password-hint paths.
  *   2. Landing's hero + T2 baseline (fresh account, zero scenarios).
  *   3. Landing's live `GET /landing-summary` data flow: creating and
  *      solving a real scenario via the API, then confirming the stats
@@ -28,7 +28,7 @@ async function registerFreshAccount(page: Page, tag: string): Promise<string> {
   return email;
 }
 
-test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
+test.describe("Bundle 4 — auth cover page (unauthenticated)", () => {
   // These specs must run with no session at all, unlike the rest of the
   // suite (which relies on registering a fresh account per test but still
   // inherits the shared storageState file). The shared file is already an
@@ -37,41 +37,32 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
   // true forever.
   test.use({ storageState: undefined });
 
-  test("/login renders the split-screen shell, cover panel, labs strip, and credit links", async ({ page }) => {
+  test("/login renders the cover sign-in shell: h1, offered-by credit links, developer help link, form controls", async ({ page }) => {
     await page.goto("/login");
 
-    await expect(page.getByTestId("auth-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("auth-cover")).toBeVisible();
-    await expect(page.getByAltText(/Supply Chain Network Design book cover/i)).toBeVisible();
+    // CSI-1 replaced the split-screen (auth-shell/auth-cover/auth-labs-strip/auth-credit)
+    // with one cover page; chapter names are deliberately gone from it (L12).
+    await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByTestId("cover-strip")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Network Design Labs");
+    await expect(page.getByTestId("mode-login")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("mode-register")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("cover-shell").getByText(/Chapter \d/)).toHaveCount(0);
 
-    await expect(page.getByText("Optimization Studio")).toBeVisible();
-    await expect(page.getByText("By Prof. Michael Watson")).toBeVisible();
+    const offered = page.getByTestId("cover-offered-by");
+    await expect(offered).toBeVisible();
+    await expect(offered).toContainText("Offered by");
+    await expect(offered).toContainText("Michael Watson");
+    await expect(page.getByTestId("link-linkedin")).toHaveAttribute("href", "https://www.linkedin.com/in/michael-watson-07600a1/");
+    await expect(page.getByTestId("link-watson-email")).toHaveAttribute("href", "mailto:michael.watson@northwestern.edu");
 
-    // AuthShell's labs strip is derived from CHAPTERS' non-hidden chapters
-    // (deduped by `chapter`, in array order), not a hardcoded per-model list —
-    // transport-coal/p-median-brazil stay hiddenFromLanding (both also labeled
-    // Chapter 5, but neither contributes to the strip). Chapter 4
-    // (max-coverage-us) is unlocked and visible, delivery-teaching-us
-    // (Chapter 5, Ch.5 modified) is visible, Chapter 9 (JADE) is visible and —
-    // as of ch9-unlock — unlocked, and two-echelon-gold-au (Chapter 10) is
-    // visible as of ch10-unhide, so the strip shows Chapter 3, Chapter 4,
-    // Chapter 5, Chapter 9, Chapter 10, then Super Model (a non-chapter label). (The strip is derived from visibility alone; the lock never
-    // affected it either way.)
-    await expect(page.getByTestId("auth-labs-strip")).toHaveText("Chapter 3Chapter 4Chapter 5Chapter 9Chapter 10Super Model");
-
-    const credit = page.getByTestId("auth-credit");
-    await expect(credit).toBeVisible();
-    await expect(page.getByTitle("LinkedIn")).toHaveAttribute(
-      "href",
-      "https://www.linkedin.com/in/shubhamkumarcse/",
-    );
-    await expect(page.getByTitle("Email")).toHaveAttribute(
+    // The developer address stays reachable: the footer band's help link.
+    await expect(page.getByTestId("cover-help").getByRole("link", { name: "Contact the developer" })).toHaveAttribute(
       "href",
       "mailto:shubham.shubham4995@gmail.com",
     );
 
-    // The global AppFooter is deliberately gone on auth pages — the inline
-    // auth-credit block replaces it.
+    // The global AppFooter is still absent on the auth pages.
     await expect(page.getByTestId("app-footer")).not.toBeVisible();
 
     // Form inputs are present and usable.
@@ -90,14 +81,14 @@ test.describe("Bundle 4 — auth split-screen (unauthenticated)", () => {
     await expect(page.getByTestId("alert-login-error")).toBeVisible({ timeout: HEADER_TIMEOUT });
   });
 
-  test("/register renders the same split-screen shell and enforces the password-length hint", async ({ page }) => {
+  test("/register renders the same cover shell in create mode and enforces the password-length hint", async ({ page }) => {
     await page.goto("/register");
 
-    await expect(page.getByTestId("auth-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("auth-cover")).toBeVisible();
-    await expect(page.getByText("Optimization Studio")).toBeVisible();
-    await expect(page.getByText("By Prof. Michael Watson")).toBeVisible();
-    await expect(page.getByTestId("auth-labs-strip")).toBeVisible();
+    await expect(page.getByTestId("cover-shell")).toBeVisible({ timeout: HEADER_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Network Design Labs");
+    await expect(page.getByTestId("mode-register")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("button-register")).toHaveText("Create account");
+    await expect(page.getByTestId("cover-offered-by")).toContainText("Michael Watson");
     await expect(page.getByTestId("app-footer")).not.toBeVisible();
 
     // Password hint appears below 8 characters and disappears at/above it.
