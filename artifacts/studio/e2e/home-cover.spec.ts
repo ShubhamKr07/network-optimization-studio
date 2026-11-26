@@ -155,4 +155,18 @@ test.describe("home cover (HCV)", () => {
     expect(focused.outline, "home focus-ring green must not reach the textarea").not.toBe("rgb(23, 102, 27)");
     expect(focused.radius, "home 3px focus radius must not reach the textarea").not.toBe("3px");
   });
+
+  // The feedback panel opens inside the green footer; it once inherited the footer's pale text colour
+  // onto its white background. The page-wide contrast runs above never open it.
+  for (const scheme of ["light", "dark"] as const) {
+    test(`feedback panel text >= 4.5:1 when open (${scheme})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await home(page, scheme);
+      await page.getByTestId("feedback-button").click({ timeout: T });
+      await expect(page.getByTestId("feedback-anonymity-hint")).toBeVisible({ timeout: T });
+      const r = await measureHomeContrast(page);
+      expect(r.checked).toBeGreaterThan(40);
+      expect(r.findings).toEqual([]);
+    });
+  }
 });
