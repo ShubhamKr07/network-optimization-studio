@@ -36,6 +36,7 @@ describe("FeedbackWidget", () => {
     render(<FeedbackWidget />);
     const launcher = screen.getByTestId("feedback-button");
     expect(launcher).toHaveAttribute("aria-expanded", "false");
+    expect(launcher).toHaveTextContent("Feedback");
     await user.click(launcher);
     expect(launcher).toHaveAttribute("aria-expanded", "true");
     await waitFor(() => expect(screen.getByTestId("feedback-input")).toHaveFocus());

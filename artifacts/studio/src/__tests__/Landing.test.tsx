@@ -51,10 +51,14 @@ describe("Landing", () => {
     expect(screen.getByText(/JADE Network/)).toBeInTheDocument();
   });
 
-  it("shows the Super Model card with an SM chapter number, not 00", () => {
+  it("shows the Super Model card with a drawn glyph and a screen-reader label, not a number", () => {
+    mockUseGetSolveHistory.mockReturnValue({ data: [] });
     renderLanding();
     expect(screen.getByText(/Super Model — Import Your Network/)).toBeInTheDocument();
-    expect(screen.getByText("SM")).toBeInTheDocument();
+    const card = screen.getByTestId("landing-card-super-model");
+    expect(card.querySelector(".num svg")).toBeInTheDocument();
+    expect(card).toHaveTextContent("Super Model:");
+    expect(screen.queryByText("SM")).not.toBeInTheDocument();
   });
 
   it("links each visible chapter to its route", () => {
@@ -88,21 +92,22 @@ describe("Landing", () => {
     expect(screen.queryByText("Recent solves")).not.toBeInTheDocument();
   });
 
-  it("shows a chapter number and a start affordance on each card (baseline)", () => {
+  it("shows a chapter numeral beside the title and a Start affordance on each card (baseline)", () => {
     mockUseGetSolveHistory.mockReturnValue({ data: [] });
     renderLanding();
-    const footer = screen.getByTestId("landing-card-footer-p-median-us");
-    expect(footer).toHaveTextContent("03");
-    expect(footer).toHaveTextContent("start");
+    const card = screen.getByTestId("landing-card-p-median-us");
+    expect(card.querySelector(".num")).toHaveTextContent(/^3$/);
+    expect(card).toHaveTextContent("Chapter 3:");
+    expect(screen.getByTestId("landing-card-footer-p-median-us")).toHaveTextContent("Start");
+    expect(screen.queryByText("Chapter 3", { selector: ".scnd-kicker" })).toBeNull();
   });
 
-  it("clips the card and gives the footer a sunken full-bleed strip", () => {
+  it("gives each card the home-card surface with a separate footer strip", () => {
     mockUseGetLandingSummary.mockReturnValue({ data: { perChapter: [], totals: { scenarios: 0, solvedScenarios: 0 } }, isPending: false, isError: false });
     renderLanding();
     const footer = screen.getByTestId("landing-card-footer-p-median-us");
-    const card = footer.closest("[class*='overflow-hidden']");
-    expect(card).not.toBeNull();
-    expect(footer.className).toContain("border-t");
+    expect(footer.className).toContain("card-foot");
+    expect(footer.closest(".home-card")).toBe(screen.getByTestId("landing-card-p-median-us"));
   });
 
   it("prefixes recent-solve rows with the chapter label", () => {
@@ -110,7 +115,7 @@ describe("Landing", () => {
       data: [{ id: 10, scenarioId: 1, scenarioName: "Baseline", modelId: "p-median-us", status: "succeeded", objective: 1, objectiveMode: null, weightedAvgDistance: 1, distanceUnit: "mi", runTimeSec: 1, queuedAt: "2026-01-02T00:00:00Z", finishedAt: "2026-01-02T00:00:01Z" }],
     });
     renderLanding();
-    expect(screen.getByText(/Chapter 3 ·/)).toBeInTheDocument();
+    expect(screen.getByText("Chapter 3", { selector: ".ch" })).toBeInTheDocument();
   });
 });
 
@@ -363,13 +368,23 @@ describe("Landing — A9 legacy badges, errorCode/errorMessage failures, retry",
 });
 
 describe("Landing — live summary (T4)", () => {
+  it("says '1 scenario', not '1 scenarios', on the card and in the stats line (H8)", () => {
+    mockUseGetLandingSummary.mockReturnValue({
+      data: { perChapter: [{ modelId: "p-median-us", scenarioCount: 1, solvedScenarioCount: 0, lastSucceededSolveAt: null }], totals: { scenarios: 1, solvedScenarios: 0 } },
+      isPending: false, isError: false,
+    });
+    renderLanding();
+    expect(screen.getByTestId("landing-card-footer-p-median-us")).toHaveTextContent(/^1 scenarioStart$/);
+    expect(screen.getByTestId("landing-stats-line")).toHaveTextContent("6 labs · 1 scenario · 0 solved");
+  });
+
   it("falls back to the baseline (number + start →, no stats line) while summary is unavailable", () => {
     mockUseGetLandingSummary.mockReturnValue({ data: undefined, isPending: true, isError: false });
     renderLanding();
     expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
     const footer = screen.getByTestId("landing-card-footer-p-median-us");
-    expect(footer).toHaveTextContent("03");
-    expect(footer).toHaveTextContent("start");
+    expect(screen.getByTestId("landing-card-p-median-us").querySelector(".num")).toHaveTextContent(/^3$/);
+    expect(footer).toHaveTextContent("Start");
   });
 
   it("falls back to the baseline when a background refetch errors even though cached data is retained", () => {
@@ -383,8 +398,8 @@ describe("Landing — live summary (T4)", () => {
     renderLanding();
     expect(screen.queryByTestId("landing-stats-line")).not.toBeInTheDocument();
     const footer = screen.getByTestId("landing-card-footer-p-median-us");
-    expect(footer).toHaveTextContent("start");
-    expect(footer).not.toHaveTextContent("active");
+    expect(footer).toHaveTextContent("Start");
+    expect(footer).not.toHaveTextContent("Active");
     expect(footer).not.toHaveTextContent("scenarios");
   });
 
@@ -418,7 +433,7 @@ describe("Landing — live summary (T4)", () => {
     // lastSucceededSolveAt is more recent).
     const us = screen.getByTestId("landing-card-footer-p-median-us");
     expect(us).toHaveTextContent(/3 scenarios · solved .* ago/);
-    expect(us).toHaveTextContent("active");
+    expect(us).toHaveTextContent("Active");
 
     // transport-coal and p-median-brazil are hidden from the grid entirely —
     // no card, no footer testid.

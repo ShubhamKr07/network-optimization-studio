@@ -1,0 +1,21 @@
+/* The book cover's paper: grid, washed world, dots, sweeping arcs. Shared by the sign-in
+   page (.cover, light only) and the home page (.home, light + dark). The parent sets the tokens. */
+.cover-paper{
+  --paper:#EAF3E8;--paper-2:#DCEBD9;--land:#B9C9B8;
+  --grid:rgba(52,84,52,.10);--grid-strong:rgba(52,84,52,.17);--dot:rgba(70,100,72,.10);--arc:rgba(255,255,255,.65);
+  position:relative;overflow:hidden;isolation:isolate;
+  background:
+    linear-gradient(var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
+    linear-gradient(90deg,var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
+    linear-gradient(var(--grid) 1px,transparent 1px) 0 0/48px 48px,
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/48px 48px,
+    radial-gradient(120% 80% at 50% 40%,var(--paper) 30%,var(--paper-2) 100%)}
+.cover-paper > .wash{position:absolute;inset:-5% -15% -10%;z-index:-1;background:var(--land);opacity:.55;
+  -webkit-mask:var(--land-url) center/contain no-repeat;mask:var(--land-url) center/contain no-repeat}
+.cover-paper > .bg{position:absolute;inset:0;width:100%;height:100%;z-index:-1}
+.cover-paper .bg .dot{fill:var(--dot)}
+.cover-paper .bg .arc{fill:none;stroke:var(--arc);stroke-width:14;stroke-linecap:round;opacity:.5;vector-effect:non-scaling-stroke}
+@media (prefers-reduced-motion:no-preference){
+  .cover-paper .bg .arc{stroke-dasharray:240;animation:cover-sweep 1.8s cubic-bezier(.16,1,.3,1) .15s backwards}
+  @keyframes cover-sweep{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
+}

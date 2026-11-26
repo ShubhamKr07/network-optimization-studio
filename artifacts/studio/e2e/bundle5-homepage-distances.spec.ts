@@ -116,11 +116,15 @@ test.describe("Bundle 5 — homepage chrome", () => {
     await expect(footer).toContainText("Developed by Shubham");
     await expect(page.getByTestId("app-footer")).not.toBeVisible();
 
-    // Log-out gets a band-appropriate hover class (asserted via DOM, not a
-    // real hover — Playwright hover doesn't reliably trigger CSS :hover
-    // pseudo-class assertions the same way a class-name check does).
-    const logoutClass = await page.getByTestId("button-logout").getAttribute("class");
-    expect(logoutClass).toContain("hover:bg-white/10");
+    // HCV H2 — Log out is a real outlined button on the band, and hovering it
+    // fills it white (the old check read a Tailwind hover class off the DOM,
+    // which no longer exists). Hover is asserted by polling the computed style.
+    const logout = page.getByTestId("button-logout");
+    expect(await logout.evaluate((el) => el.tagName)).toBe("BUTTON");
+    await logout.hover();
+    await expect
+      .poll(() => logout.evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: HEADER_TIMEOUT })
+      .toBe("rgb(255, 255, 255)");
   });
 
   test("a chapter card has the sunken full-bleed footer strip", async ({ page }) => {
@@ -129,12 +133,14 @@ test.describe("Bundle 5 — homepage chrome", () => {
     const footer = page.getByTestId("landing-card-footer-p-median-us");
     await expect(footer).toBeVisible({ timeout: HEADER_TIMEOUT });
     const footerClass = await footer.getAttribute("class");
-    expect(footerClass).toContain("border-t");
+    expect(footerClass).toContain("card-foot");
+    expect(await footer.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe("1px");
 
-    // Full-bleed + clipped to the card's rounded corners — the ancestor Card
-    // carries overflow-hidden.
-    const cardHandle = footer.locator("xpath=ancestor::*[contains(@class,'overflow-hidden')][1]");
-    await expect(cardHandle).toHaveCount(1);
+    // Full-bleed + clipped to the card's rounded corners — the parent
+    // `.home-card` clips (overflow: hidden, computed).
+    const card = footer.locator("xpath=ancestor::*[contains(@class,'home-card')][1]");
+    await expect(card).toHaveCount(1);
+    expect(await card.evaluate((el) => getComputedStyle(el).overflow)).toBe("hidden");
   });
 });
 

@@ -31,7 +31,7 @@
 .cover a:hover,.cover a:focus-visible{text-decoration-line:underline}
 .cover .ext-ico{display:inline-block;margin-left:2px;vertical-align:-1px}
 .cover .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.cover .paper{--link:var(--band-deep)}
+.cover .paper{flex:1;--link:var(--band-deep)}
 .cover .access{--link:#B8E6CB;--text-muted:var(--strip-ink-muted)} /* guard: nothing in the shell reads --text-muted today */
 .cover .band{--link:#FFFFFF}
 /* one line wherever it fits; phones wrap */
@@ -53,21 +53,6 @@
 .cover .links a{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;transition:background-color .15s ease-out}
 .cover .links a:hover,.cover .links a:focus-visible{background:rgba(31,127,36,.12)}
 .cover .help{font-size:12.5px}
-
-/* paper: grid, washed world, dots, sweeping arcs */
-.cover .paper{position:relative;flex:1;overflow:hidden;isolation:isolate;
-  background:
-    linear-gradient(var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
-    linear-gradient(90deg,var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
-    linear-gradient(var(--grid) 1px,transparent 1px) 0 0/48px 48px,
-    linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/48px 48px,
-    radial-gradient(120% 80% at 50% 40%,var(--paper) 30%,var(--paper-2) 100%)}
-.cover .paper > .bg{position:absolute;inset:0;width:100%;height:100%;z-index:-1}
-/* the shared land asset, tinted by masking: one file serves the wash and the strip */
-.cover .wash{position:absolute;inset:-5% -15% -10%;z-index:-1;background:var(--land);opacity:.55;
-  -webkit-mask:var(--land-url) center/contain no-repeat;mask:var(--land-url) center/contain no-repeat}
-.cover .bg .dot{fill:var(--dot)}
-.cover .bg .arc{fill:none;stroke:rgba(255,255,255,.65);stroke-width:14;stroke-linecap:round;opacity:.5;vector-effect:non-scaling-stroke}
 
 .cover .inner{width:100%;max-width:1120px;margin:0 auto;padding:clamp(28px,5vw,64px) 16px 40px;display:flex;flex-direction:column;align-items:center;gap:clamp(22px,3.5vw,40px)}
 .cover h1{margin:0;font:700 clamp(2.6rem,6.4vw,5rem)/1 var(--serif);letter-spacing:-0.02em;text-align:center;text-wrap:balance}

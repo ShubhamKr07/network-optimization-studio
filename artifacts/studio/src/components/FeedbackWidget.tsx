@@ -104,19 +104,19 @@ export function FeedbackWidget() {
           )}
         </div>
       )}
-      <Button
+      <button
         ref={launcherRef}
-        size="sm"
-        variant="outline"
+        type="button"
+        className="feedback-pill"
         data-testid="feedback-button"
         aria-expanded={open}
         aria-controls="feedback-panel"
         aria-label="Send feedback"
         onClick={() => (open ? close() : setOpen(true))}
-        className="rounded-full shadow"
       >
-        <MessageSquare className="w-4 h-4" />
-      </Button>
+        <MessageSquare className="w-4 h-4" aria-hidden="true" />
+        Feedback
+      </button>
     </div>
   );
 }

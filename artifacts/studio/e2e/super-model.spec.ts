@@ -134,7 +134,9 @@ test.describe("Super Model", () => {
 
     const card = page.getByTestId("landing-card-super-model");
     await expect(card).toBeVisible({ timeout: HEADER_TIMEOUT });
-    await expect(page.getByTestId("landing-card-footer-super-model")).toContainText("SM");
+    // HCV H5 — the Super Model shows a drawn network glyph where the others show a numeral.
+    await expect(card.locator(".num svg")).toBeVisible();
+    await expect(card).toContainText("Super Model:");
     await card.click();
     await expect(page.getByTestId("workspace-page")).toBeVisible({ timeout: HEADER_TIMEOUT });
 

@@ -14,9 +14,10 @@ import { AccountLinks } from "@/components/AccountLinks";
 describe("AccountLinks", () => {
   it("renders Terms · Privacy · Delete my account in that order", () => {
     render(<AccountLinks />);
-    expect(screen.getByTestId("account-links")).toHaveTextContent(/^Terms·Privacy·Delete my account$/);
+    expect(screen.getByTestId("account-links")).toHaveTextContent(/^TermsPrivacyDelete my account$/);
     expect(screen.getByTestId("link-terms")).toHaveAttribute("href", "/terms");
     expect(screen.getByTestId("link-privacy")).toHaveAttribute("href", "/privacy");
+    expect(screen.getByTestId("link-delete-account").className).toContain("btn-band");
   });
 
   it("opens the delete dialog only on click", async () => {

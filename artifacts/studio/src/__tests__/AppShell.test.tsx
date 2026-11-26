@@ -13,8 +13,9 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const mockLogoutMutate = vi.fn();
+let pendingLogout = false;
 vi.mock("@workspace/api-client-react", () => ({
-  useLogoutUser: () => ({ mutate: mockLogoutMutate }),
+  useLogoutUser: () => ({ mutate: mockLogoutMutate, isPending: pendingLogout }),
   getGetCurrentAuthUserQueryKey: () => ["getCurrentAuthUser"],
 }));
 
@@ -35,12 +36,6 @@ vi.mock("@/components/FeedbackWidget", () => ({
 
 vi.mock("@/components/AccountLinks", () => ({ AccountLinks: () => <div data-testid="account-links" /> }));
 
-// COSM-5 — the real component needs canvas APIs this suite does not provide
-// (no ctx/matchMedia/rAF mocks here); NetworkBackground.test.tsx owns those.
-vi.mock("@/components/NetworkBackground", () => ({
-  NetworkBackground: () => <div data-testid="network-background" />,
-}));
-
 import { AppShell } from "@/components/AppShell";
 import { UnitProvider } from "@/contexts/UnitContext";
 
@@ -52,6 +47,7 @@ function renderShell(ui: React.ReactElement) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  pendingLogout = false;
 });
 
 describe("AppShell logout", () => {
@@ -147,15 +143,15 @@ describe("AppShell band hero", () => {
 });
 
 describe("AppShell hero variant", () => {
-  it("renders the tagline and heroTitle in the expanded band when hero is set", () => {
-    renderShell(
-      <AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero>
-        <div>content</div>
-      </AppShell>,
-    );
-    expect(screen.getByText("Network Design Labs")).toBeInTheDocument();
-    expect(screen.getByTestId("hero-tagline")).toHaveTextContent(/build a scenario/i);
-    expect(screen.getByTestId("text-user-email")).toHaveTextContent("a@b.edu");
+  it("renders the hero header as one row: thumbnail, name, Offered-by subtext, no tagline", () => {
+    renderShell(<AppShell userEmail="a@b.edu" heroTitle="Network Design Labs" hero><div>c</div></AppShell>);
+    const header = screen.getByTestId("text-user-email").closest("header") as HTMLElement;
+    expect(header.className).toContain("home-top");
+    expect(header.className).not.toContain("scnd-band");
+    expect(header.querySelector("img")).toBeInTheDocument();
+    expect(header).toHaveTextContent("Network Design Labs");
+    expect(header).toHaveTextContent("Offered by Michael Watson");
+    expect(screen.queryByTestId("hero-tagline")).not.toBeInTheDocument();
   });
 
   it("omits the tagline in the compact (non-hero) band", () => {
@@ -179,14 +175,21 @@ describe("AppShell hero variant", () => {
     expect(screen.queryByTestId("feedback-button")).not.toBeInTheDocument();
   });
 
-  // COSM-5 — same hero gate as the feedback widget scopes the animated
-  // background to the homepage.
-  it("renders the network background only on the homepage hero shell", () => {
-    const { rerender } = renderShell(<AppShell userEmail="a@b.c" hero>{<div />}</AppShell>);
-    expect(screen.getByTestId("network-background")).toBeInTheDocument();
+  it("renders the cover backdrop only on the homepage hero shell", () => {
+    const { container, rerender } = renderShell(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
+    expect(container.querySelector(".cover-paper .wash")).toBeInTheDocument();
+    rerender(<UnitProvider><AppShell userEmail="a@b.edu"><div>c</div></AppShell></UnitProvider>);
+    expect(container.querySelector(".cover-paper")).toBeNull();
+  });
 
-    rerender(<UnitProvider><AppShell userEmail="a@b.c">{<div />}</AppShell></UnitProvider>);
-    expect(screen.queryByTestId("network-background")).not.toBeInTheDocument();
+  it("makes Log out a band button that disables and says Logging out… while pending", () => {
+    pendingLogout = true;
+    renderShell(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
+    const btn = screen.getByTestId("button-logout");
+    expect(btn.tagName).toBe("BUTTON");
+    expect(btn.className).toContain("btn-band");
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent("Logging out…");
   });
 
   // Regression: the launcher used to float inside the scroll wrapper, where it
@@ -293,11 +296,6 @@ describe("AppShell layout", () => {
     rerender(<UnitProvider><AppShell userEmail="a@b.edu"><div>c</div></AppShell></UnitProvider>);
     expect(screen.queryByTestId("homepage-credit-footer")).not.toBeInTheDocument();
     expect(screen.getByTestId("app-footer")).toBeInTheDocument();
-  });
-
-  it("gives the log-out button a hover-highlight class", () => {
-    renderShell(<AppShell userEmail="a@b.edu" hero><div>c</div></AppShell>);
-    expect(screen.getByTestId("button-logout").className).toContain("hover:bg-white/10");
   });
 
   it("puts the account links in the home footer only, never in the header beside Log out", () => {
