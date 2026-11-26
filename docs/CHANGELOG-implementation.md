@@ -5841,3 +5841,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - Gate (post-rewrite `e2e:gate`, 2.1 h under load avg 45-60 from other sessions): 251 passed, 3 failed, 12 flaky, 6 errors outside any test (workers force-killed after 300 s); skipped not reported. All 3 failures and the flakies are unrelated specs and passed in isolated re-runs (`truthful-status:200`, `workspace-fixups-2:220`, `terms-consent:96`, `design-upgrade-p5:1065`, `workspace-ux-r1-r9:62` after one 120 s timeout, and `cover-sign-in:238/:310` after two `page.goto` 30 s timeouts in a separate run). Isolated: home-cover + the seven rewritten siblings 46/46 passed. `typecheck:e2e` clean. `e2e_journey.py http://localhost:8093 auth` 18/18.
 - Screenshots (light/dark x 1440/820/390) in `.harness/hcv/` (gitignored). Differences against the prototype: the long `e2e-hcv-shot-...` email truncates with an ellipsis (28ch cap, by design); the world wash renders in the app but not over `file://` (as noted in HCV-1); recent-solves chapter cell reads "Chapter 3" where the prototype abbreviates "Ch. 3"; otherwise layout, type and colours match.
 - No product bug found; no `text-user-email` wait at a viewport under 720 px found in any spec.
+
+### HCV-1 review fixes — independent (fable) review of home-cover
+
+- Stats line on the paper used `--ink-faint` and measured 3.24–3.91:1 over the world wash (light); now `--ink-muted` (~6.9:1). The test-side blind spot that let it pass (`homeContrast.ts` ignored the wash) is fixed in the HCV-2 follow-up.
+- Feedback launcher's keyboard ring inherited the band's yellow while floating over the mint paper (1.01:1 in light); `.home .feedback-pill:focus-visible` now uses `--focus-ring` (green light / yellow dark).
+- Lab card titles `h3` → `h2` (outline was h1 → h3 → h2); dropped `aria-disabled` on the card `<article>` (not allowed there; `data-locked` + no link carry it).
+- Gate: Landing, Landing.lockedRendering, AppShell vitest 52/52; studio typecheck clean. Full suite + e2e re-gate run with the HCV-2 follow-up.

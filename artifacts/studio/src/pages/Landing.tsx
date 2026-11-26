@@ -125,10 +125,10 @@ export function Landing() {
           // hold the most recent solve — that would contradict the lock.
           const isActive = !locked && ready && c.modelId === activeModelId;
           const card = (
-            <article className="home-card" data-testid={`landing-card-${c.modelId}`} data-locked={locked ? "true" : undefined} aria-disabled={locked || undefined}>
+            <article className="home-card" data-testid={`landing-card-${c.modelId}`} data-locked={locked ? "true" : undefined}>
               <div className="card-body">
                 <span className="num" aria-hidden="true">{numeral ?? <NetworkGlyph />}</span>
-                <h3 className="title"><span className="sr">{c.chapter}: </span>{c.title}</h3>
+                <h2 className="title"><span className="sr">{c.chapter}: </span>{c.title}</h2>
                 <p className="desc">{c.description}</p>
               </div>
               <div className="card-foot" data-testid={`landing-card-footer-${c.modelId}`}>
