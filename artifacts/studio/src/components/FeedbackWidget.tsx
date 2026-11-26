@@ -64,7 +64,7 @@ export function FeedbackWidget() {
           id="feedback-panel"
           role="group"
           aria-label="Send feedback"
-          className="absolute bottom-full right-0 mb-2 z-20 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background p-3 shadow-lg text-left"
+          className="absolute bottom-full right-0 mb-2 z-20 w-[min(20rem,calc(100vw-2rem))] rounded border bg-background text-foreground p-3 shadow-lg text-left"
           onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
         >
           {status === "sent" ? (

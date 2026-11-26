@@ -117,7 +117,9 @@ a:hover > .home-card .go svg{transform:translateX(3px)}
 .home-bottom :where(a,.btn-band):focus-visible{outline-color:#F2E9A8}
 /* the pill floats above the band, over the paper: it needs the paper's ring, not the band's */
 .home .feedback-pill:focus-visible{outline-color:var(--focus-ring)}
-.home-bottom .credit{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0}
+.home-bottom .credit p{margin:0}
+.home-bottom .credit .by{color:var(--band-ink);font-weight:600}
+.home-bottom .credit .reach{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;margin-top:2px;font-size:12px}
 .home-bottom .icons{display:inline-flex;gap:2px}
 .home-bottom .ico{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%}
 .home-bottom .ico:hover{background:rgba(255,255,255,.12)}
