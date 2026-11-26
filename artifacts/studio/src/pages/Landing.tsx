@@ -22,7 +22,7 @@ const NetworkGlyph = () => (
   <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
     <path d="M8 30 20 10 32 28 8 30M20 10v20" />
     <circle cx="8" cy="30" r="4" fill="currentColor" /><circle cx="20" cy="10" r="4" fill="currentColor" />
-    <circle cx="32" cy="28" r="4" fill="currentColor" /><circle cx="20" cy="30" r="3" fill="var(--card)" />
+    <circle cx="32" cy="28" r="4" fill="currentColor" /><circle cx="20" cy="30" r="3" fill="var(--home-card)" />
   </svg>
 );
 

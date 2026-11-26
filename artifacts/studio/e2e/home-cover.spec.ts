@@ -127,4 +127,32 @@ test.describe("home cover (HCV)", () => {
       });
     }
   }
+
+  // Review notes (2026-11-26): the pill's hover green kept white text at 4.17:1, and the home focus
+  // rule leaked an outline + 3px radius onto library controls inside the feedback panel.
+  test("Feedback pill hover keeps white text at >= 4.5:1", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await home(page);
+    const pill = page.getByTestId("feedback-button");
+    await pill.hover();
+    await expect.poll(() => pill.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(23, 102, 27)");
+  });
+
+  test("library controls in the feedback panel keep their own focus style (no home outline)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await home(page);
+    await page.getByTestId("feedback-button").click({ timeout: T });
+    const input = page.getByTestId("feedback-input");
+    await input.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement;
+      const cs = getComputedStyle(el);
+      return { id: el.getAttribute("data-testid"), outline: cs.outlineColor, radius: cs.borderTopLeftRadius };
+    });
+    expect(focused.id).toBe("feedback-input");
+    expect(focused.outline, "home focus-ring green must not reach the textarea").not.toBe("rgb(23, 102, 27)");
+    expect(focused.radius, "home 3px focus radius must not reach the textarea").not.toBe("3px");
+  });
 });
