@@ -5817,3 +5817,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
   - The toggle was `<ul role="group" aria-label="Choose">` (list semantics broken, unhelpful name); now `<div role="group" aria-label="Log in or create an account">` with the two buttons.
   - Plan deviation noted by the reviewer: `.cover .access` now also sets `--text-muted` as a guard (nothing in the shell reads it today).
 - Tests: 3 new `SignIn.test.tsx` cases (group name, both modes locked while either request is pending, both errors reset on toggle). Studio suite 206 files / 3350 tests passed; studio typecheck clean; e2e `cover-sign-in`, `terms-consent`, `bundle4-auth-landing`, `bundle6-ui-tweaks`, `password-reset` 47 passed (local api 3131, studio 5221).
+
+### CSI deploy record (2026-11-26)
+- Pushed `ce6a9490..18436186` to `origin/main` (CSI cover sign-in page, its e2e sweep and review fixes, the CSI and re-grounded Phase 6 plans, retro rows). The push started no build on either service (checked with `list_deploys`).
+- `pnpm deploy:preflight -- 9e985fe0..18436186`: nos-studio DEPLOY (28 files), nos-api no change, schema unchanged, no migrations, no new env vars.
+- **nos-studio** deployed at `18436186` (trigger api, live 2026-11-26 04:04:05 UTC). **nos-api** not redeployed (no api change; stays at `9e985fe0`).
+- Post-deploy: `pnpm deploy:preflight -- --verify-studio https://app.networkdesignbook.com/compare` → 200 with `id="root"`; `/`, `/login`, `/register`, `/forgot-password`, `/terms` → 200; `<title>` is "Network Design Labs"; a signed-out screenshot of `/` matches prototype v8. No `pnpm smoke` run for this deploy (studio-only, no API change), so `deploys.csv` gets no row for it.
+- Same push carries the two OMQ smoke rows (2026-11-23) that had stayed unpushed.
