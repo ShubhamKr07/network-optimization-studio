@@ -160,7 +160,11 @@ test.describe("delete my account (B5)", () => {
     const footer = page.getByTestId("homepage-credit-footer");
     await expect(footer.getByTestId("link-delete-account")).toBeVisible({ timeout: T });
     await expect(page.locator("header").getByTestId("link-delete-account")).toHaveCount(0);
-    await expect(footer.getByTestId("account-links")).toHaveText(/Terms\s*·\s*Privacy\s*·\s*Delete my account/);
+    // HCV H7 — the "·" separators are gone: the three actions are separate controls,
+    // in this order (Delete is a real button, H2).
+    const accountLinks = footer.getByTestId("account-links");
+    await expect(accountLinks.locator("a, button")).toHaveText(["Terms", "Privacy", "Delete my account"]);
+    await expect(accountLinks).not.toContainText("·");
 
     await footer.getByTestId("link-delete-account").click({ timeout: T });
     const dialog = page.getByTestId("dialog-delete-account");

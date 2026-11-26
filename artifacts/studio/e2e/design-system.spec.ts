@@ -188,29 +188,29 @@ test.describe("Bundle 3 — book-cover design system", () => {
     expectApproxRgb(accentBg, green400);
   });
 
-  test("workspace chrome: Landing hero + AppShell header ink + Card radii/shadow + band-colored legend swatch", async ({ page }) => {
+  test("workspace chrome: Landing hero band + Workspace header ink + Card radii/shadow + band-colored legend swatch", async ({ page }) => {
     await registerAndGoHome(page, "pmedian");
 
-    // AppShell header (the real authed shell, distinct from the auth
-    // page's own inline band header checked above).
-    const header = page.locator("header").first();
+    // HCV H1/H10 — the home (hero) header is the cover's green band, not the
+    // ink band any more; the ink band is still the compact Workspace header,
+    // asserted below once the Workspace is open.
+    const header = page.locator("header.home-top");
     const headerBg = await header.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(headerBg).toBe("rgb(24, 26, 21)");
+    expect(headerBg).toBe("rgb(23, 102, 27)"); // --band-deep #17661B
 
     // Additive-only copy rule: the new band hero title AND Landing's own
     // pre-existing body <h1>"Labs"> both render.
     await expect(page.getByText("Network Design Labs")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Labs", exact: true })).toBeVisible();
 
-    // Card radii (rounded-xl -> --radius-xl = 6px, not the shadcn default
-    // 8px) + EXACT shadow (not merely `!== "none"` — a transparent
-    // rgba(.../0) would pass that weaker check but be invisible) on a real
-    // Landing chapter card.
-    const card = page.getByTestId("link-/chapter-3").locator("div").first();
+    // HCV H5 — the Landing card is the cover's `.home-card`: 4px radius and
+    // the EXACT two-layer `--shadow` from home.css (not merely `!== "none"` —
+    // a transparent rgba(.../0) would pass that weaker check but be invisible).
+    const card = page.getByTestId("landing-card-p-median-us");
     const cardRadius = await card.evaluate((el) => getComputedStyle(el).borderRadius);
-    expect(cardRadius).toBe("6px");
+    expect(cardRadius).toBe("4px");
     const cardShadow = await card.evaluate((el) => getComputedStyle(el).boxShadow);
-    expectRealShadowLayer(cardShadow, "rgba(24, 26, 21, 0.06) 0px 1px 2px 0px");
+    expect(cardShadow).toBe("rgba(20, 40, 22, 0.06) 0px 1px 2px 0px, rgba(20, 40, 22, 0.3) 0px 10px 24px -14px");
 
     // Band-colored route legend swatch (NetworkMap's own Output Map legend)
     // resolves to a --band-* token, not a hand-picked literal hex — proves
@@ -228,6 +228,8 @@ test.describe("Bundle 3 — book-cover design system", () => {
     try {
       await solveViaApi(page, id);
       await gotoScenario(page, "/chapter-3", id);
+      // The compact Workspace header keeps the ink band (H10; DU Q8 still holds off the home page).
+      expect(await page.locator("header.scnd-band").first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(24, 26, 21)");
       await page.getByTestId("sidebar-output-output-map").click();
       await expect(page.getByTestId("output-map-tab")).toBeVisible({ timeout: HEADER_TIMEOUT });
 

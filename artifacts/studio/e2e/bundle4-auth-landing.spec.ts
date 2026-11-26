@@ -106,7 +106,9 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
     await expect(page.getByTestId("text-user-email")).toHaveText(email, { timeout: 8_000 });
 
     await expect(page.getByText("Network Design Labs")).toBeVisible();
-    await expect(page.getByTestId("hero-tagline")).toContainText(/build a scenario/i);
+    // HCV H1 — the tagline is gone; the header carries "Offered by" as subtext.
+    await expect(page.locator("header.home-top")).toContainText("Offered by Michael Watson");
+    await expect(page.getByTestId("hero-tagline")).toHaveCount(0);
 
     // Chapter 3 (p-median-us), Chapter 4 (max-coverage-us), Chapter 5
     // (delivery-teaching-us), Chapter 9 (JADE) and Chapter 10 (gold refinery,
@@ -119,8 +121,8 @@ test.describe("Bundle 4 — Landing hero + baseline (fresh account)", () => {
 
     const footer = page.getByTestId("landing-card-footer-p-median-us");
     await expect(footer).toContainText("no scenarios yet");
-    await expect(footer).toContainText("start");
-    await expect(footer).not.toContainText("active");
+    await expect(footer).toContainText("Start");
+    await expect(footer).not.toContainText("Active");
 
     // The delivery-teaching-us card is visible too (not locked, not hidden).
     await expect(page.getByTestId("landing-card-delivery-teaching-us")).toBeVisible();
@@ -187,12 +189,13 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // should reflect the scenario count without a solved badge yet.
       await page.reload();
       await expect(page.getByTestId("landing-stats-line")).toHaveText(
-        "6 labs · 1 scenarios · 0 solved",
+        "6 labs · 1 scenario · 0 solved",
         { timeout: HEADER_TIMEOUT },
       );
       const footerUnsolved = page.getByTestId("landing-card-footer-p-median-us");
-      await expect(footerUnsolved).toContainText("1 scenarios");
-      await expect(footerUnsolved).not.toContainText("active");
+      await expect(footerUnsolved).toContainText("1 scenario");
+      await expect(footerUnsolved).not.toContainText("1 scenarios");
+      await expect(footerUnsolved).not.toContainText("Active");
 
       // Solve it for real via the async job API (enqueue + poll), the same
       // contract the UI itself drives (POST .../solve -> 202 {jobId}; GET
@@ -216,16 +219,17 @@ test.describe("Bundle 4 — Landing reflects live solve data", () => {
       // completed solve.
       await page.reload();
       const stats = page.getByTestId("landing-stats-line");
-      await expect(stats).toHaveText("6 labs · 1 scenarios · 1 solved", {
+      await expect(stats).toHaveText("6 labs · 1 scenario · 1 solved", {
         timeout: HEADER_TIMEOUT,
       });
 
       const footerSolved = page.getByTestId("landing-card-footer-p-median-us");
-      await expect(footerSolved).toContainText("1 scenarios · solved");
-      await expect(footerSolved).toContainText("active");
+      await expect(footerSolved).toContainText("1 scenario · solved");
+      await expect(footerSolved).not.toContainText("1 scenarios");
+      await expect(footerSolved).toContainText("Active");
 
-      // Recent-solves row is prefixed with the chapter label.
-      await expect(page.getByText(/Chapter 3 ·/)).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // HCV H6 — a Recent-solves row leads with the chapter label in its own mono cell.
+      await expect(page.locator(".home-recent .ch", { hasText: /^Chapter 3$/ })).toBeVisible({ timeout: HEADER_TIMEOUT });
     } finally {
       await page.request.delete(`/api/scenarios/${scenarioId}`);
     }

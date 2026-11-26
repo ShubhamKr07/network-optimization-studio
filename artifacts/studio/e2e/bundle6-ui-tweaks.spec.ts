@@ -23,9 +23,9 @@
  *         (Chapter 5, retired) cards (Chapter 10 was unhidden by
  *         ch10-unhide) and excludes them from Recent Solves and the stats line.
  *         delivery-teaching-us (also Chapter 5, Ch.5 modified) is a
- *         DIFFERENT model and is visible — see the "Chapter 5 ·" presence
+ *         DIFFERENT model and is visible — see the "Chapter 5" presence
  *         check below.
- *       - T6 item 9: the Landing hero cover image is ~96px (h-24).
+ *       - T6 item 9: the Landing hero cover thumbnail (30px wide since HCV H1; was ~96px / h-24).
  *   (b) Unauthenticated (`storageState: undefined`, mirroring
  *       bundle4-auth-landing.spec.ts — `Gate` redirects an authed session
  *       away from `/login`):
@@ -281,7 +281,7 @@ test.describe("Bundle 6 — Workspace (authenticated)", () => {
 });
 
 test.describe("Bundle 6 — Landing (authenticated)", () => {
-  test("hides the retired Ch5 cards (delivery-teaching-us visible), visible-only stats, hero cover ~96px", async ({ page }) => {
+  test("hides the retired Ch5 cards (delivery-teaching-us visible), visible-only stats, hero cover thumbnail 30px", async ({ page }) => {
     test.setTimeout(120_000);
     await registerFreshAccount(page, "bundle6-landing");
 
@@ -323,15 +323,20 @@ test.describe("Bundle 6 — Landing (authenticated)", () => {
       // The p-median-us AND delivery-teaching-us solves show in Recent
       // Solves; the transport-coal one (hiddenFromLanding) does not. This
       // is a PRESENCE check, not the old count-0 — the moment
-      // delivery-teaching-us shipped visible, "Chapter 5 ·" started
-      // appearing in Recent Solves for real.
-      await expect(page.getByText(/Chapter 3 ·/)).toBeVisible({ timeout: HEADER_TIMEOUT });
-      await expect(page.getByText(/Chapter 5 ·/)).toBeVisible({ timeout: HEADER_TIMEOUT });
+      // delivery-teaching-us shipped visible, "Chapter 5" started
+      // appearing in Recent Solves for real. (HCV H6: the label is its own
+      // `.ch` cell now, no trailing " ·".)
+      const recentChapters = page.locator(".home-recent .ch");
+      await expect(recentChapters.filter({ hasText: /^Chapter 3$/ })).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      await expect(recentChapters.filter({ hasText: /^Chapter 5$/ })).toHaveCount(1, { timeout: HEADER_TIMEOUT });
+      // The hidden transport-coal solve adds no third row.
+      await expect(recentChapters).toHaveCount(2);
 
-      // T6 item 9 — the hero cover image is h-24 (~96px).
-      const coverImg = page.locator('header img[alt=""]');
+      // HCV H1 — the hero cover thumbnail is 30px wide (it was ~96px / h-24
+      // before the one-row header; the thumbnail itself was kept by user choice).
+      const coverImg = page.locator('header.home-top img[alt=""]');
       await expect(coverImg).toBeVisible();
-      await expect(coverImg).toHaveClass(/h-24/);
+      await expect.poll(async () => Math.round((await coverImg.boundingBox())?.width ?? 0)).toBe(30);
     } finally {
       await page.request.delete(`/api/scenarios/${pmedianId}`);
       await page.request.delete(`/api/scenarios/${transportId}`);

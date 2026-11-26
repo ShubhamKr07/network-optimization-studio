@@ -899,13 +899,27 @@ test.describe("DU-5.4 — Phase 5 real-browser QA (dark mode)", () => {
     expect(scan.checked, "landing: text nodes measured").toBeGreaterThan(5);
     expect(scan.findings, "landing: text under 3:1").toEqual([]);
     expect(scan.whiteSurfaces, "landing: white surfaces in dark").toEqual([]);
-    // Q8: the ink header band stays ink in BOTH themes.
-    const band = page.locator(".scnd-band").first();
-    const darkBand = await band.evaluate(el => getComputedStyle(el).backgroundColor);
+    // HCV H10 retires Q8 for the home page only: its band is the cover's green in BOTH
+    // themes (#0F4A13 under dark, #17661B under light) and `.scnd-band` no longer renders here.
+    const homeBand = page.locator("header.home-top");
+    await expect(page.locator(".scnd-band")).toHaveCount(0);
+    expect(await homeBand.evaluate(el => getComputedStyle(el).backgroundColor), "home band green in dark").toBe("rgb(15, 74, 19)");
     await scheme(page, "light");
     await expectTheme(page, false);
-    expect(await band.evaluate(el => getComputedStyle(el).backgroundColor), "Q8: band ink in light").toBe(darkBand);
-    expect(darkBand).toBe("rgb(24, 26, 21)");
+    expect(await homeBand.evaluate(el => getComputedStyle(el).backgroundColor), "home band green in light").toBe("rgb(23, 102, 27)");
+    // Q8 still holds on the compact Workspace header: ink in BOTH themes.
+    const id = await createScenario(page, "p-median-us");
+    try {
+      await openWorkspace(page, "p-median-us", id);
+      const band = page.locator(".scnd-band").first();
+      const lightBand = await band.evaluate(el => getComputedStyle(el).backgroundColor);
+      await scheme(page, "dark");
+      await expectTheme(page, true);
+      expect(await band.evaluate(el => getComputedStyle(el).backgroundColor), "Q8: workspace band ink in dark").toBe(lightBand);
+      expect(lightBand).toBe("rgb(24, 26, 21)");
+    } finally {
+      await page.request.delete(`/api/scenarios/${id}`);
+    }
   });
 
   for (const chapter of CHAPTERS) {
