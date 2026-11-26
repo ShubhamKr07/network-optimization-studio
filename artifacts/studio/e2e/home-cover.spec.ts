@@ -84,7 +84,7 @@ test.describe("home cover (HCV)", () => {
     test(`H5: a Tab walk reaches every control with a solid ring in the right colour (${scheme})`, async ({ page }) => {
       await page.setViewportSize({ width: 1440, height: 900 });
       await home(page, scheme);
-      // Ring colours from home.css: `.home :focus-visible` uses --focus-ring (#17661B light,
+      // Ring colours from home.css: `.home :where(a,.btn-band,.feedback-pill):focus-visible` uses --focus-ring (#17661B light,
       // #F2E9A8 dark); `.btn-band` and `.home-bottom` force #F2E9A8 on the green bands; the
       // feedback pill sits over the paper and uses --focus-ring.
       const BAND = "rgb(242, 233, 168)";

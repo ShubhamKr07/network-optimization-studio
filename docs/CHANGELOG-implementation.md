@@ -5857,7 +5857,7 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 
 ### HCV review notes — whole-branch review Lows 1–3 (post-deploy follow-up)
 
-- Feedback pill hover `#238F29` (white text 4.17:1) → `var(--band-deep)` (5.1:1 light).
+- Feedback pill hover `#238F29` (white text 4.17:1) → `var(--band-deep)` (7.1:1 light, 10.5:1 dark).
 - `home.css` card tokens renamed `--card*` → `--home-card*`: `.home` was redefining the global shadcn `--card` (an HSL triplet consumed as `hsl(var(--card))`) with a hex, so any `bg-card` component placed on the home page would have rendered transparent.
-- `.home :focus-visible` (outline + 3px radius on every focused descendant, out-ranking Tailwind's layered utilities) scoped to home-authored controls `:where(a,.btn-band,.feedback-pill)`; library controls in the feedback panel keep their own focus styles.
+- `.home :focus-visible` (outline + 3px radius on every focused descendant, out-ranking Tailwind's layered utilities) scoped to home-authored controls `:where(a,.btn-band,.feedback-pill)`; controls in the feedback panel no longer get the home ring: the Send `Button` keeps its own ring, and the raw textarea and Close button fall back to the browser's default focus ring (still visible).
 - Two e2e regressions added to `home-cover.spec.ts` (pill hover colour; textarea focus not themed by home), both shown failing on the previous CSS and passing on the fix. Gate: typecheck clean; studio vitest 205 files / 3346 passed; typecheck:e2e clean; home-cover + design-system + bundle5 + feedback specs 23/23 locally.
