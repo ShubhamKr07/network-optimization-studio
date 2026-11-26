@@ -6,7 +6,7 @@
 > - **Roles:** HCV-1 `frontend-engineer`, reviewed by the lead on Opus plus `ponytail:ponytail-review`. HCV-2 `qa-sdet`, reviewed by a separate `fable` reviewer agent.
 > - Tasks run in order; every commit is green on its own. A stalled agent is resumed with `SendMessage`, never re-dispatched. Steps use checkbox (`- [ ]`) syntax.
 
-**Status:** draft, awaiting the user's review (2026-11-26). The prototype it implements was approved the same day after four feedback rounds.
+**Status:** approved by the user 2026-11-26 after a Codex adversarial review (needs-attention, 3 findings, all folded into HCV-2: a home-specific contrast helper, the `e2e-` email prefix, the `./fixtures` import). The prototype it implements was approved the same day after four feedback rounds.
 
 **Goal:** the signed-in home page (`/`, `Landing` inside the hero `AppShell`) carries the same book-cover world as the sign-in page — green band header and footer, mint graph-paper page with the washed world map, dots and arcs — in light and a night variant for dark mode, with the six labs as a 3-column card grid.
 
@@ -593,7 +593,7 @@ Run `ponytail:ponytail-review` on the diff and apply what it cuts. Append `### H
 ### Task HCV-2: Real-browser QA and the sibling e2e sweep
 
 **Files:**
-- Create: `artifacts/studio/e2e/home-cover.spec.ts`
+- Create: `artifacts/studio/e2e/home-cover.spec.ts`, `artifacts/studio/e2e/helpers/homeContrast.ts`
 - Modify (each where it asserts the old home): `e2e/bundle4-auth-landing.spec.ts` (`hero-tagline` at :109; "1 scenarios" at :190, :194, :219, :224; "active" at :123, :195, :225), `e2e/bundle5-homepage-distances.spec.ts` (`hover:bg-white/10` class at ~:126; card `border-t`/`overflow-hidden` at ~:129-140), `e2e/super-model.spec.ts` (`"SM"` at :137), `e2e/design-upgrade-p5.spec.ts` (Q8 ink-band assertion at :903-909), and any further hit of the sweep in Step 1
 - Docs: `docs/CHANGELOG-implementation.md`, `docs/superpowers/flake-registry.md` (new sightings only)
 
@@ -612,15 +612,16 @@ Run `ponytail:ponytail-review` on the diff and apply what it cuts. Append `### H
 
 - [ ] **Step 3: Write `e2e/home-cover.spec.ts`**
 
-Each test registers its own user (`/api/auth/register` with `acceptTerms: true`, as the other specs do) and goes to `/`.
+Each test registers its own user (`/api/auth/register` with `acceptTerms: true`, as the other specs do) and goes to `/`. Two repo rules this spec must follow (Codex review, 2026-11-26): **import from `./fixtures`**, never `@playwright/test` — the fixture stubs the PostHog and Sentry ingest hosts; and **generated emails start with `e2e-`** — `scripts/src/purge-test-users.ts` `TEST_LOCAL_PREFIXES` only collects listed prefixes, so any other prefix leaks a user per run.
 
 ```ts
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
+import { measureHomeContrast } from "./helpers/homeContrast";
 
 const T = 10_000;
 async function home(page: Page, scheme: "light" | "dark" = "light") {
   await page.addInitScript(s => { try { localStorage.setItem("nos:theme-pref", s); } catch {} }, scheme);
-  const email = `hcv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.test`;
+  const email = `e2e-hcv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.test`;
   expect((await page.request.post("/api/auth/register", { data: { email, password: "correcthorse1", acceptTerms: true } })).status()).toBe(201);
   await page.goto("/");
   await expect(page.getByTestId("landing-card-p-median-us")).toBeVisible({ timeout: T });
@@ -671,7 +672,77 @@ test("H5: keyboard reaches a lab card with a visible focus ring", async ({ page 
 });
 ```
 
-Confirm `/chapter-3` is the real path of p-median-us in `src/lib/chapters.ts` before using it. Add a contrast case using `e2e/helpers/coverContrast.ts` over `header.home-top`, `.home-card .status`, `.home-bottom` text in both themes, asserting ≥ 4.5:1.
+(`/chapter-3` is p-median-us's path, `src/lib/chapters.ts:43`.)
+
+Contrast: `e2e/helpers/coverContrast.ts` cannot be reused — it throws without `[data-testid="cover-shell"]` and reads the sign-in strip's variables. p5's `legibilityScan` would skip every text node over the gradient paper (vacuous for the heading and stats). Add `e2e/helpers/homeContrast.ts`: every visible text node under `.home` is measured against its nearest ancestor with an opaque background colour; if none exists before `.cover-paper`, against whichever of `--paper` / `--paper-2` (read from `.cover-paper`'s computed style) gives the LOWER ratio — the pessimistic bound in either theme. Chips use their own background (`--ok-bg` etc. are translucent in dark: composite them over `--card` before measuring).
+
+```ts
+import type { Page } from "@playwright/test";
+
+export interface HomeContrastResult {
+  checked: number;
+  findings: Array<{ text: string; ratio: number; fg: string; bg: string }>;
+}
+
+export async function measureHomeContrast(page: Page, min = 4.5): Promise<HomeContrastResult> {
+  return page.evaluate((minRatio) => {
+    const root = document.querySelector<HTMLElement>(".home");
+    if (!root) throw new Error(".home not rendered");
+    const paper = root.querySelector<HTMLElement>(".cover-paper");
+    if (!paper) throw new Error(".cover-paper not rendered");
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    const rgba = (c: string): number[] => { ctx.fillStyle = "#000"; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data].map((v, i) => (i === 3 ? v / 255 : v)); };
+    const over = (top: number[], under: number[]) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3])).concat(1);
+    const lin = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+    const ratio = (a: number[], b: number[]) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+    const pcs = getComputedStyle(paper);
+    const paperStops = [rgba(pcs.getPropertyValue("--paper").trim()), rgba(pcs.getPropertyValue("--paper-2").trim())];
+    // Walk up collecting translucent layers until an opaque one (or the paper) is reached.
+    const groundsFor = (el: Element): number[][] => {
+      const layers: number[][] = [];
+      for (let n: Element | null = el; n && n !== paper; n = n.parentElement) {
+        const bg = rgba(getComputedStyle(n).backgroundColor);
+        if (bg[3] === 0) continue;
+        layers.push(bg);
+        if (bg[3] === 1) return [layers.reduceRight((acc, l) => over(l, acc))];
+      }
+      return paperStops.map((p) => layers.reduceRight((acc, l) => over(l, acc), p));
+    };
+    const findings: HomeContrastResult["findings"] = [];
+    let checked = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+      const el = t.parentElement!;
+      const text = t.textContent!.trim();
+      if (!text || el.closest(".sr, [aria-hidden='true']")) continue;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      if (cs.visibility === "hidden" || cs.display === "none" || r.width === 0 || r.height === 0) continue;
+      const fg = rgba(cs.color);
+      const worst = Math.min(...groundsFor(el).map((g) => ratio(over(fg, g), g)));
+      checked++;
+      if (worst < minRatio) findings.push({ text: text.slice(0, 40), ratio: +worst.toFixed(2), fg: cs.color, bg: String(groundsFor(el)[0]) });
+    }
+    return { checked, findings };
+  }, min);
+}
+```
+
+Spec case (both themes, desktop and phone width, after `home()` and with a seeded Recent-solves row so the rows are measured — reuse `e2e/helpers/seedSolvedResult.ts` the way bundle4 does):
+
+```ts
+for (const scheme of ["light", "dark"] as const) {
+  test(`contrast ≥ 4.5:1 on every home text node (${scheme})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 }); await home(page, scheme);
+    const r = await measureHomeContrast(page);
+    expect(r.checked, "text nodes measured — non-vacuous").toBeGreaterThan(40);
+    expect(r.findings).toEqual([]);
+  });
+}
+```
+
+Before trusting it, prove the helper can fail: temporarily set `.home{--ink-faint:#B8C4B7}` via `page.addStyleTag` in a throwaway run and confirm `findings` is non-empty (record that run in the report; do not commit it).
 
 - [ ] **Step 4: Run, screenshot, compare**
 
