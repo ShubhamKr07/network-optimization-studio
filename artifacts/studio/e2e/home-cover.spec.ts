@@ -44,7 +44,10 @@ test.describe("home cover (HCV)", () => {
       await home(page);
       const box = await page.locator("header.home-top").boundingBox();
       expect(box!.height, `header height at ${width}`).toBeLessThanOrEqual(72);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no overflow at ${width}`).toBe(true);
+      // The shell root is overflow-hidden, so documentElement.scrollWidth can never exceed
+      // innerWidth; assert on the real scrollers instead.
+      expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth), `main has no horizontal overflow at ${width}`).toBe(true);
+      expect(await page.locator("header.home-top .wrap").evaluate((el) => el.scrollWidth <= el.clientWidth), `header row has no horizontal overflow at ${width}`).toBe(true);
       await expect(page.locator("header.home-top")).toContainText("Offered by Michael Watson");
       await expect(page.getByTestId("button-logout")).toBeVisible();
       await page.context().clearCookies();
@@ -77,13 +80,41 @@ test.describe("home cover (HCV)", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
-  test("H5: keyboard reaches a lab card with a visible focus ring", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await home(page);
-    const link = page.getByTestId("link-/chapter-3");
-    await link.focus();
-    expect(await link.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
-  });
+  for (const scheme of ["light", "dark"] as const) {
+    test(`H5: a Tab walk reaches every control with a solid ring in the right colour (${scheme})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await home(page, scheme);
+      // Ring colours from home.css: `.home :focus-visible` uses --focus-ring (#17661B light,
+      // #F2E9A8 dark); `.btn-band` and `.home-bottom` force #F2E9A8 on the green bands; the
+      // feedback pill sits over the paper and uses --focus-ring.
+      const BAND = "rgb(242, 233, 168)";
+      const PAPER = scheme === "light" ? "rgb(23, 102, 27)" : BAND;
+      const expected: Record<string, string> = {
+        "button-logout": BAND,
+        "link-/chapter-3": PAPER,
+        "feedback-button": PAPER,
+        "link-terms": BAND,
+        "link-delete-account": BAND,
+      };
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      const seen: Record<string, { style: string; color: string }> = {};
+      for (let i = 0; i < 60 && Object.keys(seen).length < Object.keys(expected).length; i++) {
+        await page.keyboard.press("Tab");
+        const info = await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          return { id: el.getAttribute("data-testid") ?? "", style: cs.outlineStyle, color: cs.outlineColor };
+        });
+        if (info && info.id in expected) seen[info.id] = { style: info.style, color: info.color };
+      }
+      expect(Object.keys(seen).sort(), "every expected control was reached by Tab").toEqual(Object.keys(expected).sort());
+      for (const [id, want] of Object.entries(expected)) {
+        expect(seen[id].style, `${id} ring style`).toBe("solid");
+        expect(seen[id].color, `${id} ring colour`).toBe(want);
+      }
+    });
+  }
 
   for (const scheme of ["light", "dark"] as const) {
     for (const [width, height] of [[1440, 900], [390, 844]] as const) {

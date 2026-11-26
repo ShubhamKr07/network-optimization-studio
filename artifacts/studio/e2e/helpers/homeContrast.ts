@@ -10,8 +10,17 @@ import type { Page } from "@playwright/test";
  * Every visible text node under `.home` is measured against its nearest opaque
  * ancestor background. Translucent layers (chip tints in dark) are composited over
  * what is beneath them. If no opaque ancestor exists before `.cover-paper`, the text
- * is measured against BOTH `--paper` and `--paper-2` and the lower ratio wins — the
- * pessimistic bound in either theme.
+ * is measured against FOUR grounds and the lowest ratio wins: `--paper`, `--paper-2`,
+ * and each of those with the world wash (`.cover-paper > .wash`: `--land` at the
+ * wash's computed opacity, assumed to cover the text fully since the mask is partial)
+ * composited on top. The wash is darker than the paper in light and lighter in dark,
+ * so a paper-only bound is optimistic exactly under the heading row and stats line.
+ *
+ * Opacity: the text colour's alpha is multiplied by the product of the opacities of
+ * the element and every ancestor up to `.home`, so a dimmed (e.g. locked, .6) card is
+ * measured as rendered. Limitation: the card's own background is not dimmed in the
+ * model, which is the conservative direction for light text on a dark surface only
+ * when the dimmed ground is lighter; revisit if a locked card ever ships.
  */
 export interface HomeContrastResult {
   checked: number;
@@ -42,6 +51,12 @@ export async function measureHomeContrast(page: Page, min = 4.5): Promise<HomeCo
     };
     const pcs = getComputedStyle(paper);
     const paperStops = [rgba(pcs.getPropertyValue("--paper").trim()), rgba(pcs.getPropertyValue("--paper-2").trim())];
+    const wash = paper.querySelector<HTMLElement>(":scope > .wash");
+    if (!wash) throw new Error(".cover-paper > .wash not rendered");
+    const wcs = getComputedStyle(wash);
+    const land = rgba(wcs.backgroundColor);
+    land[3] *= parseFloat(wcs.opacity);
+    const grounds4 = [...paperStops, ...paperStops.map((p) => over(land, p))];
     const groundsFor = (el: Element): number[][] => {
       const layers: number[][] = [];
       for (let n: Element | null = el; n && n !== paper; n = n.parentElement) {
@@ -50,7 +65,7 @@ export async function measureHomeContrast(page: Page, min = 4.5): Promise<HomeCo
         layers.push(bg);
         if (bg[3] === 1) return [layers.reduceRight((acc, l) => over(l, acc))];
       }
-      return paperStops.map((p) => layers.reduceRight((acc, l) => over(l, acc), p));
+      return grounds4.map((p) => layers.reduceRight((acc, l) => over(l, acc), p));
     };
     const findings: HomeContrastResult["findings"] = [];
     let checked = 0;
@@ -63,6 +78,7 @@ export async function measureHomeContrast(page: Page, min = 4.5): Promise<HomeCo
       const r = el.getBoundingClientRect();
       if (cs.visibility === "hidden" || cs.display === "none" || r.width === 0 || r.height === 0) continue;
       const fg = rgba(cs.color);
+      for (let n: Element | null = el; n && n !== root.parentElement; n = n.parentElement) fg[3] *= parseFloat(getComputedStyle(n).opacity);
       const grounds = groundsFor(el);
       const worst = Math.min(...grounds.map((g) => ratio(over(fg, g), g)));
       checked++;
