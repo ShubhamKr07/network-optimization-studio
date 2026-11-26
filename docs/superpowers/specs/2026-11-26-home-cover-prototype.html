@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Network Design Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet">
+<style>
+/* Home page in the cover world. Same palette as the sign-in page (cover.css); dark is a night version of it. */
+:root{
+  --band:#1F7F24;--band-deep:#17661B;
+  --paper:#EAF3E8;--paper-2:#DCEBD9;--land:#B9C9B8;
+  --grid:rgba(52,84,52,.10);--grid-strong:rgba(52,84,52,.17);--dot:rgba(70,100,72,.10);--arc:rgba(255,255,255,.65);
+  --ink:#151A14;--ink-muted:#3D4A3C;--ink-faint:#5E6B5D;
+  --band-ink:#FFFFFF;--band-ink-muted:#CFDDD0;
+  --card:#F9FCF7;--card-foot:#EFF6EC;--card-line:rgba(31,127,36,.20);--card-line-hover:#1F7F24;
+  --numeral:#1F7F24;--link:#17661B;--focus-ring:#17661B;
+  --ok:#17661B;--ok-bg:#DDF0DA;--bad:#A3261B;--bad-bg:#F8E1DD;--warn:#7A5A00;--warn-bg:#F6EBC8;
+  --accent:#9BD3B4;
+  --shadow:0 1px 2px rgba(20,40,22,.06),0 10px 24px -14px rgba(20,40,22,.30);
+  --shadow-hover:0 2px 4px rgba(20,40,22,.08),0 18px 36px -16px rgba(20,40,22,.38);
+  --sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Source Serif 4',Georgia,serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+  color-scheme:light;
+}
+/* night: same world, lights off. Grid and arcs stay, the land wash goes deep green. */
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --band:#1B6E20;--band-deep:#0F4A13;
+  --paper:#101A12;--paper-2:#0B140D;--land:#1F3524;
+  --grid:rgba(155,211,180,.05);--grid-strong:rgba(155,211,180,.09);--dot:rgba(155,211,180,.05);--arc:rgba(155,211,180,.22);
+  --ink:#E6EFE4;--ink-muted:#AFC2AF;--ink-faint:#8FA38F;
+  --band-ink-muted:#C7DCC8;
+  --card:#16241A;--card-foot:#12201A;--card-line:rgba(155,211,180,.16);--card-line-hover:#9BD3B4;
+  --numeral:#9BD3B4;--link:#9BD3B4;--focus-ring:#F2E9A8;
+  --ok:#9BD3B4;--ok-bg:rgba(155,211,180,.12);--bad:#FFB4A8;--bad-bg:rgba(255,120,100,.12);--warn:#F2D27A;--warn-bg:rgba(242,210,122,.12);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 24px -14px rgba(0,0,0,.6);
+  --shadow-hover:0 2px 4px rgba(0,0,0,.35),0 18px 36px -16px rgba(0,0,0,.7);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --band:#1B6E20;--band-deep:#0F4A13;
+  --paper:#101A12;--paper-2:#0B140D;--land:#1F3524;
+  --grid:rgba(155,211,180,.05);--grid-strong:rgba(155,211,180,.09);--dot:rgba(155,211,180,.05);--arc:rgba(155,211,180,.22);
+  --ink:#E6EFE4;--ink-muted:#AFC2AF;--ink-faint:#8FA38F;
+  --band-ink-muted:#C7DCC8;
+  --card:#16241A;--card-foot:#12201A;--card-line:rgba(155,211,180,.16);--card-line-hover:#9BD3B4;
+  --numeral:#9BD3B4;--link:#9BD3B4;--focus-ring:#F2E9A8;
+  --ok:#9BD3B4;--ok-bg:rgba(155,211,180,.12);--bad:#FFB4A8;--bad-bg:rgba(255,120,100,.12);--warn:#F2D27A;--warn-bg:rgba(242,210,122,.12);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 24px -14px rgba(0,0,0,.6);
+  --shadow-hover:0 2px 4px rgba(0,0,0,.35),0 18px 36px -16px rgba(0,0,0,.7);
+  color-scheme:dark}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;display:flex;flex-direction:column;background:var(--paper);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent);color:#151A14}
+a{color:var(--link);font-weight:600;text-decoration:none;text-underline-offset:3px;text-decoration-thickness:1.5px}
+a:hover{text-decoration-line:underline}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px;border-radius:3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{width:100%;max-width:1120px;margin:0 auto;padding-inline:16px}
+@media (min-width:640px){.wrap{padding-inline:28px}}
+
+/* ── header: one quiet row on the cover's green ── */
+.top{background:var(--band-deep);color:var(--band-ink);position:relative;z-index:2}
+.top .wrap{display:flex;align-items:center;gap:14px;min-height:60px;padding-block:10px}
+.top :focus-visible{outline-color:#F2E9A8}
+.brand{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+.thumb{width:30px;height:auto;border-radius:1px;box-shadow:0 2px 6px rgba(0,0,0,.35);display:block;flex:none}
+.name{margin:0;font:700 19px/1.2 var(--serif);letter-spacing:-.01em;white-space:nowrap}
+.titles{min-width:0}
+.offered{margin:1px 0 0;font-size:12px;line-height:1.3;color:var(--band-ink-muted);white-space:nowrap}
+.who{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--band-ink-muted);min-width:0}
+.who .email{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:28ch}
+/* buttons on the green band: outlined at rest, filled on hover, pressed on click */
+.btn-band{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 13px;border:1px solid rgba(255,255,255,.55);border-radius:4px;background:transparent;color:var(--band-ink);font:600 13px var(--sans);cursor:pointer;white-space:nowrap;
+  transition:background-color .15s ease-out,color .15s ease-out,border-color .15s ease-out,transform .1s ease-out}
+.btn-band:hover:not(:disabled){background:#fff;border-color:#fff;color:#17661B}
+.btn-band:active:not(:disabled){transform:translateY(1px)}
+.btn-band:focus-visible{outline:2px solid #F2E9A8;outline-offset:2px}
+.btn-band:disabled{opacity:.7;cursor:progress}
+.btn-band.danger:hover:not(:disabled){background:#A3261B;border-color:#A3261B;color:#fff}
+.btn-band svg{flex:none}
+.spin{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:719px){.who .email{display:none}}
+
+/* ── paper: grid, washed world, dots, arcs (CoverShell's backdrop) ── */
+.paper{position:relative;flex:1;overflow:hidden;isolation:isolate;
+  background:
+    linear-gradient(var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
+    linear-gradient(90deg,var(--grid-strong) 1px,transparent 1px) 0 0/192px 192px,
+    linear-gradient(var(--grid) 1px,transparent 1px) 0 0/48px 48px,
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/48px 48px,
+    radial-gradient(120% 80% at 50% 30%,var(--paper) 30%,var(--paper-2) 100%)}
+.wash{position:absolute;inset:-4% -15% auto;height:min(760px,90vh);z-index:-1;background:var(--land);opacity:.55;
+  -webkit-mask:url("../../../artifacts/studio/src/assets/world-land.svg") center/contain no-repeat;mask:url("../../../artifacts/studio/src/assets/world-land.svg") center/contain no-repeat}
+.bg{position:absolute;inset:0;width:100%;height:100%;z-index:-1}
+.bg .dot{fill:var(--dot)}
+.bg .arc{fill:none;stroke:var(--arc);stroke-width:14;stroke-linecap:round;opacity:.5;vector-effect:non-scaling-stroke}
+
+main{padding-block:clamp(28px,4.5vw,56px) clamp(40px,6vw,72px)}
+.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:6px 24px;margin-bottom:clamp(20px,2.6vw,28px)}
+h1{margin:0;font:700 clamp(2rem,3.6vw,2.75rem)/1.05 var(--serif);letter-spacing:-.02em}
+.sub{margin:8px 0 0;font-size:16px;color:var(--ink-muted)}
+.stats{font:12px var(--mono);color:var(--ink-faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ── lab cards: 3 / 2 / 1 columns ── */
+.grid{list-style:none;margin:0;padding:0;display:grid;gap:18px;grid-template-columns:1fr}
+@media (min-width:640px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1000px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.card{display:flex;flex-direction:column;height:100%;color:inherit;font-weight:inherit;text-decoration:none!important;
+  background:var(--card);border:1px solid var(--card-line);border-radius:4px;box-shadow:var(--shadow);overflow:hidden;
+  transition:border-color .18s ease-out,box-shadow .25s cubic-bezier(.16,1,.3,1),transform .25s cubic-bezier(.16,1,.3,1)}
+.card:hover{border-color:var(--card-line-hover);box-shadow:var(--shadow-hover);transform:translateY(-2px)}
+.card:focus-visible{outline-offset:4px}
+.card-body{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr;align-content:start;gap:4px 14px;padding:20px 20px 18px;flex:1}
+.num{grid-row:span 2;min-width:1.4ch;font:700 44px/.9 var(--serif);color:var(--numeral);letter-spacing:-.03em;font-variant-numeric:lining-nums}
+.num svg{display:block;width:40px;height:40px;margin-top:2px}
+.title{margin:0;font:600 18px/1.25 var(--serif);text-wrap:balance}
+.desc{margin:4px 0 0;font-size:14px;line-height:1.5;color:var(--ink-muted)}
+.card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 20px;background:var(--card-foot);border-top:1px solid var(--card-line);min-height:44px}
+.status{font:12px var(--mono);color:var(--ink-faint);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.go{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--link);flex:none}
+.go svg{transition:transform .25s cubic-bezier(.16,1,.3,1)}
+.card:hover .go svg{transform:translateX(3px)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;flex:none}
+.chip.ok{color:var(--ok);background:var(--ok-bg)}
+.chip.bad{color:var(--bad);background:var(--bad-bg)}
+.chip.warn{color:var(--warn);background:var(--warn-bg)}
+.chip.neutral{color:var(--ink-muted);background:transparent;box-shadow:inset 0 0 0 1px var(--card-line)}
+.chip .dotm{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* ── recent solves ── */
+.recent{margin-top:clamp(40px,5vw,56px)}
+h2{margin:0;font:600 22px/1.2 var(--serif);letter-spacing:-.01em}
+.recent .sub{font-size:14px;margin:4px 0 14px}
+.rows{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--card-line);border-radius:4px;box-shadow:var(--shadow);overflow:hidden}
+.rows li+li{border-top:1px solid var(--card-line)}
+.row{display:grid;grid-template-columns:4.5rem minmax(0,1fr) auto auto;align-items:center;gap:6px 14px;padding:12px 18px;color:inherit;font-weight:inherit;text-decoration:none!important;transition:background-color .15s ease-out}
+a.row:hover{background:var(--card-foot)}
+.row .ch{font:12px var(--mono);color:var(--ink-faint)}
+.row .sc{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .figs{display:flex;gap:16px;font:12.5px var(--mono);color:var(--ink-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.row .err{grid-column:2 / -1;margin:0;font-size:13px;color:var(--ink-muted)}
+.row .retry{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--bad)}
+.row .tags{display:flex;gap:6px;align-items:center}
+@media (max-width:639px){
+  .row{grid-template-columns:auto minmax(0,1fr)}
+  .row .tags,.row .figs,.row .err{grid-column:2}
+  .row .figs{flex-wrap:wrap;gap:4px 14px}
+}
+
+/* ── footer band ── */
+.bottom{background:var(--band-deep);color:var(--band-ink-muted);border-top:6px solid var(--band);font-size:13px;position:relative}
+.bottom .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 24px;padding-block:18px}
+.bottom p{margin:0}
+.bottom a{all:unset;cursor:pointer;color:var(--band-ink);font-weight:600;text-underline-offset:3px;text-decoration-thickness:1.5px}
+.bottom a:hover,.bottom a:focus-visible{text-decoration-line:underline}
+.bottom :focus-visible{outline:2px solid #F2E9A8;outline-offset:3px;border-radius:2px}
+.credit{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.credit .icons{display:inline-flex;gap:2px}
+.credit .ico{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%}
+.credit .ico:hover{background:rgba(255,255,255,.12)}
+.legal{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap}
+.feedback{position:absolute;right:16px;top:-26px;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border:0;border-radius:999px;background:var(--band);color:#fff;font:600 14px var(--sans);cursor:pointer;box-shadow:0 8px 18px -8px rgba(0,0,0,.4);transition:background-color .15s ease-out,transform .2s cubic-bezier(.16,1,.3,1)}
+.feedback:hover{background:#238F29;transform:translateY(-1px)}
+.feedback:focus-visible{outline:2px solid var(--focus-ring);outline-offset:3px}
+
+/* one authored moment: the arcs sweep in behind the page */
+@media (prefers-reduced-motion:no-preference){
+  .bg .arc{stroke-dasharray:240;animation:sweep 1.8s cubic-bezier(.16,1,.3,1) .15s backwards}
+  @keyframes sweep{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
+}
+
+/* delete-account confirmation (same copy as DeleteAccountDialog) */
+dialog{width:min(440px,calc(100vw - 32px));padding:0;border:1px solid var(--card-line);border-radius:6px;background:var(--card);color:var(--ink);box-shadow:0 24px 60px -20px rgba(0,0,0,.5)}
+dialog::backdrop{background:rgba(10,20,12,.55)}
+dialog form{display:flex;flex-direction:column;gap:12px;padding:22px}
+dialog h3{margin:0;font:600 20px/1.25 var(--serif)}
+dialog p,dialog ul{margin:0;font-size:14px;color:var(--ink-muted)}
+dialog ul{padding-left:18px;display:grid;gap:3px;color:var(--ink)}
+dialog .fine{font-size:12.5px}
+dialog label{font-size:13px;font-weight:600}
+dialog input{width:100%;height:38px;margin-top:4px;padding:0 10px;border:1px solid var(--card-line);border-radius:4px;background:var(--paper);color:var(--ink);font:15px var(--sans)}
+dialog input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+dialog .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+dialog .btn{height:36px;padding:0 14px;border-radius:4px;font:600 14px var(--sans);cursor:pointer;transition:background-color .15s ease-out,transform .1s ease-out}
+dialog .btn:active:not(:disabled){transform:translateY(1px)}
+dialog .btn.secondary{border:1px solid var(--card-line);background:transparent;color:var(--ink)}
+dialog .btn.secondary:hover{background:var(--card-foot)}
+dialog .btn.destructive{border:0;background:#A3261B;color:#fff}
+dialog .btn.destructive:hover:not(:disabled){background:#8A1F16}
+dialog .btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* review-only control, not part of the design */
+.review{position:fixed;left:12px;bottom:12px;z-index:50;display:flex;gap:2px;padding:3px;border-radius:6px;background:#151A14;color:#fff;font:12px var(--sans);box-shadow:0 6px 16px rgba(0,0,0,.3)}
+.review button{all:unset;cursor:pointer;padding:5px 9px;border-radius:4px}
+.review button[aria-pressed="true"]{background:#F4F8F1;color:#151A14;font-weight:600}
+.review span{padding:5px 8px;opacity:.7}
+</style>
+</head>
+<body>
+<div class="review" aria-label="Prototype controls">
+  <span>Prototype · sample data</span>
+  <button type="button" data-t="auto" aria-pressed="true">System</button>
+  <button type="button" data-t="light" aria-pressed="false">Light</button>
+  <button type="button" data-t="dark" aria-pressed="false">Dark</button>
+</div>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <img class="thumb" src="../../../artifacts/studio/src/assets/book-cover.jpg" alt="">
+      <div class="titles">
+        <p class="name">Network Design Labs</p>
+        <p class="offered">Offered by Michael Watson</p>
+      </div>
+    </div>
+    <div class="who">
+      <span class="email" title="student.name@university.edu">student.name@university.edu</span>
+      <button class="btn-band" type="button" id="logout" data-label="Log out"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg><span>Log out</span></button>
+    </div>
+  </div>
+</header>
+
+<div class="paper">
+  <div class="wash" aria-hidden="true"></div>
+  <svg class="bg" aria-hidden="true" id="bg"><svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" id="arcs"></svg></svg>
+
+  <main class="wrap">
+    <div class="head">
+      <div>
+        <h1>Labs</h1>
+        <p class="sub">Pick a chapter to start or continue a scenario.</p>
+      </div>
+      <span class="stats">6 labs · 6 scenarios · 4 solved</span>
+    </div>
+
+    <ul class="grid" id="labs"></ul>
+
+    <section class="recent" aria-labelledby="recent-h">
+      <h2 id="recent-h">Recent solves</h2>
+      <p class="sub">Most recent solve per scenario. Click one to open it.</p>
+      <ul class="rows" id="rows"></ul>
+    </section>
+  </main>
+</div>
+
+<footer class="bottom">
+  <button class="feedback" type="button">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12z"/></svg>
+    Feedback
+  </button>
+  <div class="wrap">
+    <div class="credit">
+      <span>Developed by Shubham. Facing issues? Reach out at</span>
+      <span class="icons"><a class="ico" href="https://www.linkedin.com/in/shubhamkumarcse/" target="_blank" rel="noopener" aria-label="Shubham on LinkedIn (opens in a new tab)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z"/></svg>
+      </a>
+      <a class="ico" href="mailto:shubham.shubham4995@gmail.com" aria-label="Email Shubham">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M3 6.5l9 6.5 9-6.5"/></svg>
+      </a></span>
+    </div>
+    <nav class="legal" aria-label="Account and legal">
+      <a href="#terms">Terms</a><a href="#privacy">Privacy</a><button class="btn-band danger" type="button" id="del-open"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg><span>Delete my account</span></button>
+    </nav>
+  </div>
+</footer>
+
+<dialog id="del" aria-labelledby="del-h">
+  <form method="dialog" id="del-form">
+    <h3 id="del-h">Delete your account?</h3>
+    <p>This permanently deletes, and cannot be undone:</p>
+    <ul>
+      <li>your account and your record of accepting the terms</li>
+      <li>your scenarios and all their solves</li>
+      <li>your WatBot conversations, ratings and reports</li>
+    </ul>
+    <p class="fine">Anonymous site feedback cannot be traced to you and is not affected. Copies held by analytics and error-reporting services, and hosting backups, are not removed here; the Privacy Notice says how to ask.</p>
+    <div><label for="del-pw">Current password</label><input id="del-pw" type="password" autocomplete="current-password" maxlength="128"></div>
+    <div class="actions">
+      <button class="btn secondary" type="button" id="del-cancel">Cancel</button>
+      <button class="btn destructive" type="submit" id="del-go" disabled>Delete my account</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const ARROW = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>';
+const NETWORK = '<svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M8 30 20 10 32 28 8 30M20 10v20"/><circle cx="8" cy="30" r="4" fill="currentColor"/><circle cx="20" cy="10" r="4" fill="currentColor"/><circle cx="32" cy="28" r="4" fill="currentColor"/><circle cx="20" cy="30" r="3" fill="var(--card)"/></svg>';
+const LABS = [
+  { n: "3", ch: "Chapter 3", title: "AL's Athletics", desc: "Facility-location: choose which warehouses to open to minimize weighted distance to customers.", status: "3 scenarios · solved 2h ago", active: true },
+  { n: "4", ch: "Chapter 4", title: "AL's Athletics — Max Coverage", desc: "Service-level facility location across the United States: open warehouses to maximize the demand served within a target service distance.", status: "1 scenario" },
+  { n: "5", ch: "Chapter 5", title: "Network Design Fundamentals", desc: "Facility location driven by a cost table: open three DCs to minimise delivery cost, then watch the network change when long lanes are repriced.", status: "no scenarios yet" },
+  { n: "9", ch: "Chapter 9", title: "JADE Network — Multi-Product Two-Echelon", desc: "Multi-product two-echelon facility location: choose which warehouses to open so plants can ship several distinct products through them to customers at minimum cost.", status: "2 scenarios · solved 3d ago" },
+  { n: "10", ch: "Chapter 10", title: "Gold Refinery Siting — Two-Echelon", desc: "Two-echelon facility location: site a refinery between a gold mine and ten customers, and watch the choice flip as the bill-of-materials ratio changes.", status: "no scenarios yet" },
+  { n: null, ch: "Super Model", title: "Super Model — Import Your Network", desc: "Import your own plants, warehouses, customers, products and demand, set plant capacities and per-unit costs, and choose which warehouses to open at minimum total cost.", status: "no scenarios yet" },
+];
+document.getElementById("labs").innerHTML = LABS.map(l => `
+  <li><a class="card" href="#lab">
+    <span class="card-body">
+      <span class="num" aria-hidden="true">${l.n ?? NETWORK}</span>
+      <span class="title"><span class="sr">${l.ch}: </span>${l.title}</span>
+      <span class="desc">${l.desc}</span>
+    </span>
+    <span class="card-foot">
+      <span class="status">${l.status}</span>
+      ${l.active ? '<span class="chip ok"><span class="dotm"></span>Active</span>' : `<span class="go">Start${ARROW}</span>`}
+    </span>
+  </a></li>`).join("");
+
+const ROWS = [
+  { ch: "Ch 3", name: "Baseline — 5 warehouses", st: "succeeded", figs: ["Avg 412.6 mi", "Wtd 1.28M mi·units", "0.42s"] },
+  { ch: "Ch 9", name: "JADE — close Reno", st: "succeeded", unverified: true, figs: ["Cost $4.92M", "1.87s"] },
+  { ch: "Ch 3", name: "Seven DCs, forced Denver", st: "failed", err: "The solver timed out before it found a solution. Try again.", retry: true, figs: [] },
+  { ch: "Ch 4", name: "300-mile service level", st: "running", figs: [] },
+];
+const CHIP = { succeeded: "ok", failed: "bad", running: "warn" };
+document.getElementById("rows").innerHTML = ROWS.map(r => `
+  <li><a class="row" href="#scenario">
+    <span class="ch">${r.ch}</span>
+    <span class="sc">${r.name}</span>
+    <span class="tags">
+      <span class="chip ${CHIP[r.st]}"><span class="dotm"></span>${r.st}</span>
+      ${r.unverified ? '<span class="chip neutral">unverified</span>' : ""}
+      ${r.retry ? `<span class="retry">Retry${ARROW}</span>` : ""}
+    </span>
+    <span class="figs">${r.figs.map(f => `<span>${f}</span>`).join("")}</span>
+    ${r.err ? `<p class="err">${r.err}</p>` : ""}
+  </a></li>`).join("");
+
+// backdrop: same seeded dots and two sweeping arcs as CoverShell
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const NS = "http://www.w3.org/2000/svg", bg = document.getElementById("bg"), arcs = document.getElementById("arcs");
+for (let i = 0; i < 70; i++) { const c = document.createElementNS(NS, "circle"); c.setAttribute("class", "dot"); c.setAttribute("cx", rnd() * 100 + "%"); c.setAttribute("cy", rnd() * 100 + "%"); c.setAttribute("r", 3 + rnd() * 16); bg.insertBefore(c, arcs); }
+[[-.1, .22, .5, -.05, 1.1, .3], [-.05, .7, .55, .35, 1.1, .82]].forEach(([x0, y0, cx, cy, x1, y1]) => {
+  const p = document.createElementNS(NS, "path"); p.setAttribute("class", "arc"); p.setAttribute("pathLength", "240");
+  p.setAttribute("d", `M${x0 * 100},${y0 * 100} Q${cx * 100},${cy * 100} ${x1 * 100},${y1 * 100}`); arcs.appendChild(p);
+});
+
+// prototype behaviour for the two account buttons
+const SPIN = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>';
+const lo = document.getElementById("logout"), loHTML = lo.innerHTML;
+lo.addEventListener("click", () => { lo.disabled = true; lo.innerHTML = SPIN + "<span>Logging out…</span>"; setTimeout(() => { lo.disabled = false; lo.innerHTML = loHTML; }, 1400); });
+const dlg = document.getElementById("del"), pw = document.getElementById("del-pw"), go = document.getElementById("del-go");
+document.getElementById("del-open").addEventListener("click", () => { pw.value = ""; go.disabled = true; go.textContent = "Delete my account"; dlg.showModal(); pw.focus(); });
+document.getElementById("del-cancel").addEventListener("click", () => dlg.close());
+pw.addEventListener("input", () => { go.disabled = !pw.value; });
+document.getElementById("del-form").addEventListener("submit", e => { e.preventDefault(); go.disabled = true; go.textContent = "Deleting…"; setTimeout(() => dlg.close(), 1200); });
+
+// review control
+document.querySelectorAll(".review button").forEach(b => b.addEventListener("click", () => {
+  const t = b.dataset.t;
+  if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.dataset.theme = t;
+  document.querySelectorAll(".review button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+}));
+</script>
+</body>
+</html>
