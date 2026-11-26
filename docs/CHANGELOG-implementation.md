@@ -5854,3 +5854,10 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - `home-cover.spec.ts`: the H1 overflow assertion now reads `main` and `header.home-top .wrap` (`scrollWidth <= clientWidth`); the old `documentElement.scrollWidth` check cannot fail because the shell root is overflow-hidden. Proof: injecting a 3000 px child into `.home-page` gives main 3188 > 1440 (assertion would fail) while the old check still read `true`.
 - The focus test is now a keyboard Tab walk (light and dark) over Log out, the Chapter 3 card link, the Feedback pill, Terms and Delete my account, asserting `outline-style: solid` and the colour from `home.css`: `rgb(242, 233, 168)` for band controls and for everything in dark, `rgb(23, 102, 27)` for the card link and feedback pill in light (matches the lead's note).
 - Gate: `pnpm --filter studio test` 205 files / 3346 tests passed; `typecheck:e2e` clean; `pnpm e2e:gate` at load average ~5: 266 passed, 0 failed, 1 flaky (`design-upgrade-p5` "toggle: Workspace header only…", already in the flake registry; 2 isolated re-runs green), skipped not reported.
+
+### HCV review notes — whole-branch review Lows 1–3 (post-deploy follow-up)
+
+- Feedback pill hover `#238F29` (white text 4.17:1) → `var(--band-deep)` (5.1:1 light).
+- `home.css` card tokens renamed `--card*` → `--home-card*`: `.home` was redefining the global shadcn `--card` (an HSL triplet consumed as `hsl(var(--card))`) with a hex, so any `bg-card` component placed on the home page would have rendered transparent.
+- `.home :focus-visible` (outline + 3px radius on every focused descendant, out-ranking Tailwind's layered utilities) scoped to home-authored controls `:where(a,.btn-band,.feedback-pill)`; library controls in the feedback panel keep their own focus styles.
+- Two e2e regressions added to `home-cover.spec.ts` (pill hover colour; textarea focus not themed by home), both shown failing on the previous CSS and passing on the fix. Gate: typecheck clean; studio vitest 205 files / 3346 passed; typecheck:e2e clean; home-cover + design-system + bundle5 + feedback specs 23/23 locally.
