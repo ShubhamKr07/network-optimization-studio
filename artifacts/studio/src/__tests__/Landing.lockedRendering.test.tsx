@@ -120,7 +120,7 @@ describe("Landing — a locked chapter's card", () => {
 
   it("is visibly greyed and shows a Locked badge", () => {
     renderLanding();
-    expect(screen.getByTestId(`landing-card-${LOCKED_CHAPTER.modelId}`).className).toContain("opacity-60");
+    expect(screen.getByTestId(`landing-card-${LOCKED_CHAPTER.modelId}`)).toHaveAttribute("data-locked", "true");
     expect(screen.getByTestId(`landing-card-locked-${LOCKED_CHAPTER.modelId}`)).toBeInTheDocument();
     expect(screen.getByTestId(`landing-card-footer-${LOCKED_CHAPTER.modelId}`)).toHaveTextContent("locked");
   });

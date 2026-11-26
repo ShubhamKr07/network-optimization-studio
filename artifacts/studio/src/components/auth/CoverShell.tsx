@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import worldLand from "@/assets/world-land.svg";
+import { CoverBackdrop, nextRandom } from "@/components/cover/CoverBackdrop";
 import "./cover.css";
 
 // The strip's picture lives in the asset's own 360x180 degree space (x = lon + 180,
@@ -8,15 +9,7 @@ const at = ([lon, lat]: [number, number]) => [lon + 180, 90 - lat] as const;
 const PLACES: [number, number][] = [[-74, 40.7], [-0.1, 51.5], [121.5, 31.2], [-46.6, -23.5], [28, -26.2], [139.7, 35.7], [-118.2, 34], [72.9, 19.1]];
 const PAIRS: [number, number][] = [[0, 1], [1, 2], [6, 5], [0, 3], [1, 4], [2, 7], [3, 4]];
 
-// Deterministic, so the composition is stable between loads.
-let seed = 7;
-const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-
-const DOTS = Array.from({ length: 70 }, () => ({ cx: rnd() * 100, cy: rnd() * 100, r: 3 + rnd() * 16 }));
-const ARCS = [[-.1, .78, .5, .35, 1.1, .62], [-.05, .3, .55, .9, 1.1, .45]].map(
-  ([x0, y0, cx, cy, x1, y1]) => `M${x0 * 100},${y0 * 100} Q${cx * 100},${cy * 100} ${x1 * 100},${y1 * 100}`,
-);
-const BUBBLES = Array.from({ length: 40 }, () => ({ cx: 12 + rnd() * 348, cy: 12 + 134 * (.45 + rnd() * .55), r: 1.5 + rnd() * 5.5 }));
+const BUBBLES = Array.from({ length: 40 }, () => ({ cx: 12 + nextRandom() * 348, cy: 12 + 134 * (.45 + nextRandom() * .55), r: 1.5 + nextRandom() * 5.5 }));
 const ROUTES = PAIRS.map(([a, b]) => {
   const [x0, y0] = at(PLACES[a]);
   const [x1, y1] = at(PLACES[b]);
@@ -53,14 +46,8 @@ export function CoverShell({ children }: { children: ReactNode }) {
   return (
     <div className="cover" data-testid="cover-shell">
       <div className="band" aria-hidden="true" />
-      <div className="paper">
-        <div className="wash" aria-hidden="true" style={{ "--land-url": `url(${worldLand})` } as CSSProperties} />
-        <svg className="bg" aria-hidden="true">
-          {DOTS.map((d, i) => <circle key={i} className="dot" cx={`${d.cx}%`} cy={`${d.cy}%`} r={d.r} />)}
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%">
-            {ARCS.map((d) => <path key={d} className="arc" d={d} />)}
-          </svg>
-        </svg>
+      <div className="paper cover-paper">
+        <CoverBackdrop />
         <main className="inner">
           <header>
             <h1>Network Design Labs</h1>

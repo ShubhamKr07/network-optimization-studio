@@ -1,25 +1,20 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { Trash2 } from "lucide-react";
 import { DeleteAccountDialog } from "@/components/DeleteAccountDialog";
-
-const MONO = "var(--app-font-mono)";
 
 // WQF-B — lives in the home footer, deliberately far from the header's Log out
 // button (spec B5), so a destructive action cannot be hit by a near-miss.
 export function AccountLinks() {
   const [open, setOpen] = useState(false);
-  const style = { color: "var(--text-brand)" };
   return (
-    <div data-testid="account-links" className="mt-2 flex items-center justify-center gap-1.5"
-      style={{ fontFamily: MONO, fontSize: "11px", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
-      <Link href="/terms" className="underline" style={style} data-testid="link-terms">Terms</Link>
-      <span aria-hidden>·</span>
-      <Link href="/privacy" className="underline" style={style} data-testid="link-privacy">Privacy</Link>
-      <span aria-hidden>·</span>
-      <button type="button" className="underline" style={style} onClick={() => setOpen(true)} data-testid="link-delete-account">
-        Delete my account
+    <nav data-testid="account-links" className="legal" aria-label="Account and legal">
+      <Link href="/terms" data-testid="link-terms">Terms</Link>
+      <Link href="/privacy" data-testid="link-privacy">Privacy</Link>
+      <button type="button" className="btn-band danger" onClick={() => setOpen(true)} data-testid="link-delete-account">
+        <Trash2 size={14} aria-hidden="true" /><span>Delete my account</span>
       </button>
       <DeleteAccountDialog open={open} onOpenChange={setOpen} />
-    </div>
+    </nav>
   );
 }

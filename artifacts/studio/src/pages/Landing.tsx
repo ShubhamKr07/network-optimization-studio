@@ -1,8 +1,6 @@
 import { Link } from "wouter";
 import { formatDistanceDisplay } from "@/lib/formatDistanceDisplay";
-import { Lock } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { ArrowRight, Lock } from "lucide-react";
 import { CHAPTERS, chapterPathForModelId, chapterForModelId } from "@/lib/chapters";
 import { useGetSolveHistory, useGetLandingSummary } from "@workspace/api-client-react";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -12,10 +10,21 @@ import type { CanonicalUnit } from "@workspace/units";
 import { isRetryableFailureCode } from "@/lib/solveFailure";
 import { UnverifiedInfo } from "@/components/UnverifiedInfo";
 
-function chapterNumber(chapterLabel: string): string {
-  const n = chapterLabel.match(/\d+/)?.[0];
-  return n ? n.padStart(2, "0") : "SM";
+function chapterNumeral(chapterLabel: string): string | null {
+  return chapterLabel.match(/\d+/)?.[0] ?? null;
 }
+
+function pluralScenarios(n: number): string {
+  return `${n} ${n === 1 ? "scenario" : "scenarios"}`;
+}
+
+const NetworkGlyph = () => (
+  <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+    <path d="M8 30 20 10 32 28 8 30M20 10v20" />
+    <circle cx="8" cy="30" r="4" fill="currentColor" /><circle cx="20" cy="10" r="4" fill="currentColor" />
+    <circle cx="32" cy="28" r="4" fill="currentColor" /><circle cx="20" cy="30" r="3" fill="var(--card)" />
+  </svg>
+);
 
 // `GetSolveHistoryResponseItem.distanceUnit` is a plain `string` at the
 // schema level, but the contract (see its own description) guarantees it is
@@ -59,7 +68,7 @@ export function Landing() {
   // TanStack retains the last successful `data` through a background-refetch
   // error, so `summary != null` alone would treat a stale-then-errored summary
   // as ready. Gate on the flags too — pending OR errored falls back to the T2
-  // baseline (number + start →, no stats line), never a half-filled footer.
+  // baseline (numeral + Start, no stats line), never a half-filled footer.
   const ready = !isPending && !isError && summary != null;
   const byModel = new Map((summary?.perChapter ?? []).map((r) => [r.modelId, r]));
 
@@ -68,7 +77,7 @@ export function Landing() {
   const visiblePerChapter = (summary?.perChapter ?? []).filter((r) => !hiddenModelIds.has(r.modelId));
 
   // The single most-recently-solved VISIBLE chapter — that card shows
-  // "active"; every other shows "start →".
+  // "Active"; every other shows "Start →".
   let activeModelId: string | undefined;
   let activeAt = -Infinity;
   for (const r of visiblePerChapter) {
@@ -82,104 +91,75 @@ export function Landing() {
   const visibleSolved = visiblePerChapter.reduce((sum, r) => sum + r.solvedScenarioCount, 0);
 
   return (
-    <div className="max-w-[860px] mx-auto p-8">
-      <div className="flex items-baseline justify-between mb-6">
+    <div className="home-page wrap">
+      <div className="head">
         <div>
-          <h1 className="scnd-display text-2xl font-semibold mb-1">Labs</h1>
-          <p className="text-muted-foreground">Pick a chapter to start or continue a scenario.</p>
+          <h1>Labs</h1>
+          <p className="sub">Pick a chapter to start or continue a scenario.</p>
         </div>
         {ready && summary && (
-          <span data-testid="landing-stats-line" className="font-mono text-2xs text-muted-foreground whitespace-nowrap">
-            {visibleLabs} labs · {visibleScenarios} scenarios · {visibleSolved} solved
+          <span data-testid="landing-stats-line" className="stats">
+            {visibleLabs} labs · {pluralScenarios(visibleScenarios)} · {visibleSolved} solved
           </span>
         )}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <ul className="home-grid">
         {CHAPTERS.filter((c) => !c.hiddenFromLanding).map((c) => {
           // ch4-lock — a locked chapter still shows (unlike hiddenFromLanding)
           // but reads as a closed door: greyed, no hover affordance, and NOT
           // wrapped in a <Link>, so the whole card is genuinely inert rather
           // than a link styled to look disabled.
           const locked = c.locked === true;
+          const numeral = chapterNumeral(c.chapter);
+          const entry = byModel.get(c.modelId);
+          const status = locked
+            ? "locked"
+            : !ready
+              ? null
+              : !entry || entry.scenarioCount === 0
+                ? "no scenarios yet"
+                : entry.lastSucceededSolveAt
+                  ? `${pluralScenarios(entry.scenarioCount)} · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
+                  : pluralScenarios(entry.scenarioCount);
+          // A locked chapter never claims "Active", even if it happens to
+          // hold the most recent solve — that would contradict the lock.
+          const isActive = !locked && ready && c.modelId === activeModelId;
           const card = (
-            <Card
-              className={`h-full flex flex-col overflow-hidden transition-colors ${
-                locked ? "opacity-60 grayscale cursor-not-allowed" : "cursor-pointer hover:border-primary/50"
-              }`}
-              data-testid={`landing-card-${c.modelId}`}
-              data-locked={locked ? "true" : undefined}
-              aria-disabled={locked || undefined}
-            >
-              <CardHeader>
-                <p className="scnd-kicker">{c.chapter}</p>
-                <CardTitle className="scnd-display text-lg">{c.title}</CardTitle>
-                <CardDescription>{c.description}</CardDescription>
-              </CardHeader>
-              {(() => {
-                const entry = byModel.get(c.modelId);
-                const status = locked
-                  ? "locked"
-                  : !ready
-                    ? null
-                    : !entry || entry.scenarioCount === 0
-                      ? "no scenarios yet"
-                      : entry.lastSucceededSolveAt
-                        ? `${entry.scenarioCount} scenarios · solved ${formatRelativeTime(entry.lastSucceededSolveAt)}`
-                        : `${entry.scenarioCount} scenarios`;
-                // A locked chapter never claims "active", even if it happens to
-                // hold the most recent solve — that would contradict the lock.
-                const isActive = !locked && ready && c.modelId === activeModelId;
-                return (
-                  <div
-                    className="mt-auto flex items-center justify-between gap-2 border-t px-6 py-3"
-                    style={{ background: "var(--surface-sunken)", borderColor: "var(--line)" }}
-                    data-testid={`landing-card-footer-${c.modelId}`}
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="scnd-display font-bold flex-shrink-0"
-                        style={{ fontSize: "15px", color: locked ? "var(--text-faint)" : "var(--text-primary)" }}
-                      >
-                        {chapterNumber(c.chapter)}
-                      </span>
-                      {status && <span className="truncate" style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", color: "var(--text-muted)" }}>{status}</span>}
-                    </span>
-                    {locked ? (
-                      <Badge
-                        variant="outline"
-                        className="text-2xs gap-1 text-[color:var(--text-muted)]"
-                        data-testid={`landing-card-locked-${c.modelId}`}
-                      >
-                        <Lock className="w-2.5 h-2.5" aria-hidden="true" />
-                        Locked
-                      </Badge>
-                    ) : isActive ? (
-                      <Badge variant="outline" className="text-2xs text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]">active</Badge>
-                    ) : (
-                      <span style={{ fontFamily: "var(--app-font-mono)", fontSize: "11px", color: "var(--text-muted)" }}>start →</span>
-                    )}
-                  </div>
-                );
-              })()}
-            </Card>
+            <article className="home-card" data-testid={`landing-card-${c.modelId}`} data-locked={locked ? "true" : undefined} aria-disabled={locked || undefined}>
+              <div className="card-body">
+                <span className="num" aria-hidden="true">{numeral ?? <NetworkGlyph />}</span>
+                <h3 className="title"><span className="sr">{c.chapter}: </span>{c.title}</h3>
+                <p className="desc">{c.description}</p>
+              </div>
+              <div className="card-foot" data-testid={`landing-card-footer-${c.modelId}`}>
+                <span className="status">{status}</span>
+                {locked ? (
+                  <span className="chip neutral" data-testid={`landing-card-locked-${c.modelId}`}><Lock size={11} aria-hidden="true" />Locked</span>
+                ) : isActive ? (
+                  <span className="chip ok"><span className="dotm" />Active</span>
+                ) : (
+                  <span className="go">Start<ArrowRight size={14} aria-hidden="true" /></span>
+                )}
+              </div>
+            </article>
           );
-          return locked ? (
-            <div key={c.path} data-testid={`locked-${c.path}`} title="This chapter is locked.">
-              {card}
-            </div>
-          ) : (
-            <Link key={c.path} href={c.path} data-testid={`link-${c.path}`}>
-              {card}
-            </Link>
+          return (
+            <li key={c.path}>
+              {locked ? (
+                <div data-testid={`locked-${c.path}`} title="This chapter is locked.">{card}</div>
+              ) : (
+                <Link href={c.path} data-testid={`link-${c.path}`}>{card}</Link>
+              )}
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {visibleHistory && visibleHistory.length > 0 && (
-        <div className="mt-10">
-          <h2 className="scnd-display text-sm font-semibold text-foreground mb-1">Recent solves</h2>
-          <p className="text-xs text-muted-foreground mb-3">Most recent solve per scenario — click to open one.</p>
-          <div className="border rounded-lg divide-y bg-card">
+        <section className="home-recent" aria-labelledby="home-recent-h">
+          <h2 id="home-recent-h">Recent solves</h2>
+          <p className="sub">Most recent solve per scenario — click to open one.</p>
+          <ul className="rows">
             {visibleHistory.map((h) => {
               const chapterPath = chapterPathForModelId(h.modelId);
               // A9 (SCND correctness, §2.7.1) — `h.status` is the job-
@@ -196,56 +176,27 @@ export function Landing() {
               // "Proven optimal".
               const isRetryable = h.status === "failed" && isRetryableFailureCode(h.errorCode);
               const unverified = h.status === "succeeded" && h.legacyUnverified;
+              const statusChip = h.status === "succeeded" ? "ok" : h.status === "failed" ? "bad" : "warn";
               const row = (
-                <div className="flex flex-col gap-0.5 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-2xs text-muted-foreground">
-                        {chapterForModelId(h.modelId)?.chapter ?? ""} ·
-                      </span>
-                      <span className="truncate font-medium text-foreground">{h.scenarioName}</span>
-                      <Badge
-                        variant="outline"
-                        className={`text-2xs ${
-                          h.status === "succeeded" ? "text-[color:var(--success)] border-[color:var(--success-border)] bg-[color:var(--success-bg)]" :
-                          h.status === "failed" ? "text-[color:var(--danger)] border-[color:var(--danger-border)] bg-[color:var(--danger-bg)]" :
-                          "text-[color:var(--warning)] border-[color:var(--warning-border)] bg-[color:var(--warning-bg)]"
-                        }`}
-                      >
-                        {h.status}
-                      </Badge>
-                      {unverified && (
-                        <Badge
-                          variant="outline"
-                          className="text-2xs text-muted-foreground border-muted-foreground/40 bg-muted/30"
-                          data-testid={`badge-legacy-unverified-${h.id}`}
-                        >
-                          unverified
-                        </Badge>
-                      )}
-                      {isRetryable && (
-                        <span
-                          className="text-2xs font-medium text-[color:var(--danger)]"
-                          data-testid={`link-retry-solve-history-${h.id}`}
-                        >
-                          Retry →
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-shrink-0 font-mono">
-                      {h.objective != null && <span>{formatHistoryObjective({ ...h, objective: h.objective }, unit)}</span>}
-                      {h.weightedAvgDistance != null && <span>{formatHistoryDistance({ ...h, weightedAvgDistance: h.weightedAvgDistance }, unit)}</span>}
-                      {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
-                    </div>
-                  </div>
+                <div className="row">
+                  <span className="ch">{chapterForModelId(h.modelId)?.chapter ?? ""}</span>
+                  <span className="sc">{h.scenarioName}</span>
+                  <span className="tags">
+                    <span className={`chip ${statusChip}`}><span className="dotm" />{h.status}</span>
+                    {unverified && <span className="chip neutral" data-testid={`badge-legacy-unverified-${h.id}`}>unverified</span>}
+                    {isRetryable && <span className="retry" data-testid={`link-retry-solve-history-${h.id}`}>Retry<ArrowRight size={13} aria-hidden="true" /></span>}
+                  </span>
+                  <span className="figs">
+                    {h.objective != null && <span>{formatHistoryObjective({ ...h, objective: h.objective }, unit)}</span>}
+                    {h.weightedAvgDistance != null && <span>{formatHistoryDistance({ ...h, weightedAvgDistance: h.weightedAvgDistance }, unit)}</span>}
+                    {h.runTimeSec != null && <span>{h.runTimeSec.toFixed(2)}s</span>}
+                  </span>
                   {/* A9 — failure rendering consumes errorCode/errorMessage
                       (A5's permanent, server-owned safe strings), never a
                       raw diagnostic; there is no raw diagnostic anywhere on
                       this typed response to fall back to. */}
                   {h.status === "failed" && h.errorMessage && (
-                    <p className="text-2xs text-muted-foreground pl-[3.25rem]" data-testid={`text-error-message-${h.id}`}>
-                      {h.errorMessage}
-                    </p>
+                    <p className="err" data-testid={`text-error-message-${h.id}`}>{h.errorMessage}</p>
                   )}
                 </div>
               );
@@ -260,26 +211,19 @@ export function Landing() {
               // invalid HTML and an a11y trap), so it needs no preventDefault.
               const info = unverified ? <div className="pr-3 flex-shrink-0"><UnverifiedInfo /></div> : null;
               return chapterPath && !rowLocked ? (
-                <div key={h.id} className="flex items-center">
-                  <Link href={`${chapterPath}?scenario=${h.scenarioId}`} data-testid={`link-solve-history-${h.id}`} className="block flex-1 min-w-0">
-                    {row}
-                  </Link>
+                <li key={h.id}>
+                  <Link href={`${chapterPath}?scenario=${h.scenarioId}`} data-testid={`link-solve-history-${h.id}`} className="row-link">{row}</Link>
                   {info}
-                </div>
+                </li>
               ) : (
-                <div
-                  key={h.id}
-                  className={`flex items-center${rowLocked ? " opacity-60 cursor-not-allowed" : ""}`}
-                  data-testid={rowLocked ? `locked-solve-history-${h.id}` : undefined}
-                  title={rowLocked ? "This chapter is locked." : undefined}
-                >
-                  <div className="flex-1 min-w-0">{row}</div>
+                <li key={h.id} data-locked={rowLocked ? "true" : undefined} data-testid={rowLocked ? `locked-solve-history-${h.id}` : undefined} title={rowLocked ? "This chapter is locked." : undefined}>
+                  <div className="row-link">{row}</div>
                   {info}
-                </div>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ul>
+        </section>
       )}
     </div>
   );

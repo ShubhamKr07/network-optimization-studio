@@ -7,7 +7,7 @@ let getThemePref: typeof import("@/lib/theme").getThemePref;
 let setThemePref: typeof import("@/lib/theme").setThemePref;
 let applyTheme: typeof import("@/lib/theme").applyTheme;
 
-// vi.stubGlobal + unstubAllGlobals, the NetworkBackground.test.tsx:8-15,39
+// vi.stubGlobal + unstubAllGlobals, the matchMedia stubbing
 // pattern; a direct window.matchMedia assignment would leak across tests.
 function mockSystemDark(dark: boolean) {
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: dark, addEventListener: vi.fn() }));
