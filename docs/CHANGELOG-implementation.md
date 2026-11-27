@@ -5928,7 +5928,7 @@ Owner-only `/admin` page: WatBot usage, quality, cost and reliability, plus flag
 - **`e2e:gate`** at load 7 with no other runners: 280 passed, 0 unexpected, 1 flaky (`design-upgrade-p5` theme toggle, 2/2 isolated).
 - **`ADMIN_PERF=1`**, alone, 10× volume, 90 days, median of 3: metrics 938 ms (573 ms at lower load), flagged 30 ms, site feedback 5 ms. The flagged plan uses `IDX_watbot_reports_message`.
 
-**Not caused by ADM, flagged:** `e2e_accuracy.py` gives 97/99 on both `adm` and `origin/main` `8961e76f`; two single-source cases return `no_solution`, the CBC time-limit class.
+**`e2e_accuracy.py`:** 97/99 under load (on both `adm` and `origin/main` `8961e76f`; two single-source cases returned `no_solution`, the CBC time-limit class). **99/99 in 43 s at load 2 on merged `main` `27653280`**, so the failures were load-induced, not a regression.
 
 **Deviations from the plan:**
 - Serial T3 → T4, from the plan review.

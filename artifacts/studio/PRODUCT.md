@@ -31,7 +31,7 @@ It is the book's own labs: the book's datasets and published answers, solved by 
 
 - Web app (React + Vite studio, Express API, Postgres), deployed on Render as `app.networkdesignbook.com`.
 - Seven chapter models, miles-canonical. Chapter access can be locked per model.
-- Users carry a role (`student` today; `instructor` reserved; an `admin` role is planned for the dashboard). No class or roster model exists yet.
+- Users carry a role: `student`, `instructor` (reserved), or `admin` (unlocks `/admin`, the WatBot and site-feedback dashboard; granted per `docs/ops/admin-role.md`). No class or roster model exists yet.
 - Legal text names the app "Network Design Labs". Terms and Privacy Notice consent is required at sign-up and log-in (version 2026-11-25).
 
 ## Brand Commitments
