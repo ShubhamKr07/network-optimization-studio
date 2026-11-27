@@ -5875,3 +5875,17 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - `homeContrast.ts`: the inactive-control skip narrowed from any `[aria-disabled='true']` to `button:disabled` and `button`/`a`/`[role=button]` with `aria-disabled`, so a future locked card or row cannot be silently exempted.
 - e2e: error text after a stubbed failed send measured in light and dark; placeholder colour must equal the measured muted-foreground hint. On the old code the dark error case fails at 3.69:1 and both placeholder cases fail; light error passed before (4.71:1) and is a guard.
 - Gate: typecheck clean; studio vitest 205 files / 3346 passed; typecheck:e2e clean; home-cover + feedback specs 22/22 locally.
+
+### HCV deploy record (2026-11-26 – 2026-11-27)
+Four nos-studio deploys, each pushed, preflighted and deployed on its own approval. No push started a build on its own (checked with `list_deploys` after each). **nos-api** was not redeployed (no api change in any range; stays at `9e985fe0`). Every preflight: schema unchanged, no migrations, no new env vars.
+
+| # | Push | Preflight range → nos-studio | Live (UTC, trigger api) | What |
+|---|---|---|---|---|
+| 1 | `d3b077e3..23c40b3c` | `18436186..23c40b3c`: DEPLOY (27 files) | 2026-11-26 17:31:33 | HCV home page (HCV-1, HCV-2, review fixes, plan, retro) |
+| 2 | `23c40b3c..f662701f` | `23c40b3c..f662701f`: DEPLOY (3 files) | 2026-11-26 17:43:20 | whole-branch review Lows 1–3 (pill hover, `--home-card*` tokens, scoped focus rule) |
+| 3 | `f662701f..952e6536` | `f662701f..952e6536`: DEPLOY (5 files) | 2026-11-26 18:25:08 | footer credit subtext; feedback panel `text-foreground` (light text was 1.38:1) |
+| 4 | `952e6536..ee6234af` | `952e6536..ee6234af`: DEPLOY (3 files) | 2026-11-27 11:13:22 | feedback panel error `text-danger`, muted placeholder, narrowed helper skip |
+
+- Post-deploy, each time: `pnpm deploy:preflight -- --verify-studio https://app.networkdesignbook.com/compare` → 200 with `id="root"`; `/`, `/login`, `/chapter-3` → 200 (plus `/register`, `/forgot-password`, `/terms`, `/privacy` after #1); the live bundle was confirmed to carry the new code (`home-top`/`feedback-pill`/`cover-paper` after #1, `--home-card` after #2, the footer subtext and `text-foreground` panel after #3, `placeholder:text-muted-foreground` after #4). After #1 a production screenshot of `/login` matched the approved sign-in design (only the arcs' draw-in is new). The signed-in home page was not viewed in production (no production account was created for it); it was verified locally in light and dark at 1440/820/390.
+- No `pnpm smoke` run for any of the four (studio-only, no API change), so `deploys.csv` gets no rows.
+- Cleanup after the deploys: the 8 worktrees and 12 local branches of the CSI, Phase 6 plan, OMQ record and HCV work were removed; each branch had 0 commits outside `main` (`git cherry`) and was an ancestor of `main`, so plain `git branch -d` sufficed. None existed on `origin`.
