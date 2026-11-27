@@ -88,11 +88,11 @@ export function FeedbackWidget() {
                 maxLength={MAX_BODY_CHARS}
                 onChange={e => setBody(e.target.value)}
                 rows={4}
-                className="mt-2 w-full rounded border p-2 text-sm"
+                className="mt-2 w-full rounded border p-2 text-sm placeholder:text-muted-foreground"
                 placeholder="What's on your mind?"
               />
               {status === "error" && (
-                <p className="mt-1 text-xs text-destructive" data-testid="feedback-error">{errorText}</p>
+                <p className="mt-1 text-xs text-[color:var(--danger)]" data-testid="feedback-error">{errorText}</p>
               )}
               <div className="mt-2 flex justify-end">
                 <Button size="sm" data-testid="feedback-send" onClick={handleSend}
