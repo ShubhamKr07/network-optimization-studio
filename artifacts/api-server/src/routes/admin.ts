@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { and, desc, gte, lt } from "drizzle-orm";
 import { db, feedbackTable } from "@workspace/db";
-import { GetAdminFeedbackResponse } from "@workspace/api-zod";
+import { GetAdminFeedbackResponse, GetAdminWatBotMetricsResponse } from "@workspace/api-zod";
 import { logger } from "../lib/logger.js";
 import { requireAdmin } from "../middlewares/auth.js";
 import { parseAdminRange, chicagoStart, chicagoEnd } from "../services/adminRange.js";
+import { getAdminMetrics } from "../services/adminMetrics.js";
 
 // Every admin endpoint lives on `admin`, and the ONLY way it is reachable is the
 // gated mount below (plan review F4). Never register an admin route on `router`.
@@ -25,6 +26,15 @@ admin.get("/feedback", async (req, res) => {
   } catch {
     logger.error({ step: "admin-feedback" }, "admin feedback query failed");
     res.status(500).json({ error: "Could not load site feedback." }); }
+});
+
+admin.get("/watbot/metrics", async (req, res) => {
+  const p = parseAdminRange(req.query as Record<string, unknown>, undefined);
+  if (!p.ok) { res.status(422).json({ error: p.error }); return; }
+  try { res.json(GetAdminWatBotMetricsResponse.parse(await getAdminMetrics(p.range))); }
+  catch {
+    logger.error({ step: "admin-watbot-metrics" }, "admin metrics query failed");
+    res.status(500).json({ error: "Could not load WatBot metrics." }); }
 });
 
 export default router;

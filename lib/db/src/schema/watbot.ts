@@ -85,6 +85,7 @@ export const watbotMessagesTable = pgTable("watbot_messages", {
 }, (t) => [
   index("IDX_watbot_messages_conversation").on(t.conversationId, t.createdAt),
   index("IDX_watbot_messages_user_role").on(t.userId, t.role, t.createdAt),
+  index("IDX_watbot_messages_role_created").on(t.role, t.createdAt),
 ]);
 
 export const watbotReportsTable = pgTable("watbot_reports", {
@@ -96,7 +97,10 @@ export const watbotReportsTable = pgTable("watbot_reports", {
   context: jsonb("context").$type<WatBotContext>(),
   sources: jsonb("sources").$type<WatBotCitation[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("IDX_watbot_reports_created").on(t.createdAt),
+  index("IDX_watbot_reports_message").on(t.messageId, t.id),
+]);
 
 // Spec §6 / D17 — the PRD draft's sessions view, partitioned by (user, model) so
 // "sessions per exercise" needs no attribution step. Answered student messages
@@ -152,4 +156,7 @@ export const watbotFeedbackTable = pgTable("watbot_feedback", {
   repairMessageId: integer("repair_message_id").references(() => watbotMessagesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [uniqueIndex("UQ_watbot_feedback_message").on(t.messageId)]);
+}, (t) => [
+  uniqueIndex("UQ_watbot_feedback_message").on(t.messageId),
+  index("IDX_watbot_feedback_created").on(t.createdAt),
+]);

@@ -57,19 +57,26 @@ describe("admin gate", () => {
     }
   });
 
-  // metrics/flagged handlers land in T3/T4, so only feedback can answer 200 here.
-  it("admin → 200 on the site-feedback endpoint", async () => {
+  // the flagged handler lands in T4, so only feedback and metrics can answer 200 here.
+  it.each(["/api/admin/feedback", "/api/admin/watbot/metrics"])("admin → 200 on %s", async (p) => {
     const cookie = await asAdmin();
-    expect((await request(app).get("/api/admin/feedback" + Q).set("Cookie", cookie)).status).toBe(200);
+    expect((await request(app).get(p + Q).set("Cookie", cookie)).status).toBe(200);
   });
 
-  it("422s on a bad range, as plain sentences", async () => {
+  it.each(["/api/admin/feedback", "/api/admin/watbot/metrics"])("%s: 422s on a bad range, as plain sentences", async (p) => {
     const cookie = await asAdmin();
     for (const q of ["?from=2026-02-30&to=2026-03-02", "?from=2026-11-01&to=2026-11-31", "?from=2026-11-27&to=2026-11-01", "?from=2026-01-01&to=2026-11-27", "?from=2099-01-01&to=2099-01-02", "?from=x&to=y"]) {
-      const res = await request(app).get("/api/admin/feedback" + q).set("Cookie", cookie);
+      const res = await request(app).get(p + q).set("Cookie", cookie);
       expect(res.status).toBe(422);
       expect(res.body.error).toMatch(/^[A-Z][^[{]*\.$/);
     }
+  });
+
+  it("422s on an unknown modelId (metrics only; feedback ignores it)", async () => {
+    const cookie = await asAdmin();
+    const res = await request(app).get("/api/admin/watbot/metrics" + Q + "&modelId=nope").set("Cookie", cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/^[A-Z][^[{]*\.$/);
   });
 });
 
