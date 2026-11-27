@@ -66,8 +66,8 @@ export function AdminDashboard() {
             <label>to <input type="date" value={custom.to} max={today} onChange={(e) => setCustom({ ...custom, to: e.target.value })} className="rounded-md border border-input bg-card px-2 py-1" /></label>
           </span>
         )}
-        <label className="text-[13px]">Chapter{" "}
-          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="rounded-md py-1">
+        <label className="max-w-full text-[13px]">Chapter{" "}
+          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="w-auto max-w-[min(100%,16rem)] rounded-md py-1">
             <option value="">All chapters</option>
             {(models ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>

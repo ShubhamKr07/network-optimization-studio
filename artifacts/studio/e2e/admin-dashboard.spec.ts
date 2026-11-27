@@ -131,9 +131,8 @@ test("dark mode at 390x844 shows the jump link", async ({ browser }) => {
 
 // AppShell scrolls inside <main class="absolute inset-0 overflow-y-auto">, so the document itself can never
 // exceed the viewport; measure the dashboard root and the scroll container instead.
-// TODO(ADM-T5b): test.fail() while the heatmap overflows at 390 (root.scrollWidth measured 398); delete the marker once T5b lands.
+// Measured 398 before ADM-T5b (the heatmap); T5b scrolls the grid inside its card.
 test("dark mode at 390x844 does not overflow horizontally", async ({ browser }) => {
-  test.fail();
   const { ctx, page } = await openDark390(browser);
   try {
     await expect(page.getByRole("link", { name: /Read what students said/ })).toBeVisible({ timeout: T }); // data rendered
