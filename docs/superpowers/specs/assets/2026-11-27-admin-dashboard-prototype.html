@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin dashboard prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FCFCFA; --panel:#FFFFFF; --panel-2:#F5F6F0; --fg:#171914; --fg-2:#4E5248; --fg-3:#6B6F64;
+  --line:#E2E4DA; --line-2:#D5D9CC; --bar:#171914; --bar-fg:#E9ECE2; --brand:#A9C96A;
+  --olive:#608028; --olive-ink:#455C1D; --olive-wash:#EEF3E2; --grey-series:#8A8F80;
+  --warn:#B45309; --warn-bg:#FFFBEB; --warn-line:#FCD34D;
+  --zero:#EEF0E8; --r0:#6F952F; --r1:#597726; --r2:#455C1D; --r3:#314215; --r4:#1B240B;
+  --focus:#7DA436; --shadow:0 1px 2px rgba(23,25,20,.06),0 6px 18px rgba(23,25,20,.06);
+}
+[data-theme="dark"]{
+  --bg:#171914; --panel:#1F221B; --panel-2:#1B1E18; --fg:#F2F4EC; --fg-2:#C3C7BA; --fg-3:#A3A797;
+  --line:#33362E; --line-2:#41453A; --bar:#0F110D; --bar-fg:#D9DCD2; --brand:#A9C96A;
+  --olive:#94B847; --olive-ink:#B5D185; --olive-wash:#273019; --grey-series:#9A9E92;
+  --warn:#F59E0B; --warn-bg:#2A2110; --warn-line:#7A5A12;
+  --zero:#24271F; --r0:#5F7B2F; --r1:#749639; --r2:#8BB444; --r3:#B5D185; --r4:#E5EFD4;
+  --focus:#A9C96A; --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+::selection{background:var(--olive);color:#fff}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+*{scrollbar-color:var(--line-2) transparent;scrollbar-width:thin}
+input{caret-color:var(--olive)}
+button{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+svg text{font-family:'IBM Plex Sans',sans-serif}
+
+/* top bar */
+.topbar{background:var(--bar);color:var(--bar-fg);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;gap:16px}
+.brand{display:flex;align-items:baseline;gap:12px;min-width:0}
+.brand .name{font:600 20px 'Source Serif 4',serif;color:var(--brand);white-space:nowrap}
+.brand .area{font-size:14px;color:var(--bar-fg);opacity:.85;white-space:nowrap}
+.topbar .right{display:flex;align-items:center;gap:14px;font-size:13px}
+.linkish{background:none;border:0;color:var(--bar-fg);cursor:pointer;padding:6px 8px;border-radius:6px;white-space:nowrap;text-decoration:none;font-size:13px}
+.linkish:hover{background:rgba(255,255,255,.08)}
+
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 28px;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:5}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:none;padding:6px 13px;font-size:13px;cursor:pointer;border-right:1px solid var(--line-2)}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--olive-wash)}
+.seg button[aria-pressed="true"]{background:var(--olive);color:#fff}
+[data-theme="dark"] .seg button[aria-pressed="true"]{color:#14170F}
+.field{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--fg-2)}
+select,input[type=date],input[type=search]{font:13px 'IBM Plex Sans';color:var(--fg);background:var(--panel);border:1px solid var(--line-2);border-radius:7px;padding:6px 10px}
+select:hover,input:hover{border-color:var(--olive)}
+.custom{display:none;gap:6px;align-items:center}
+.custom.on{display:inline-flex}
+.note{font-size:12px;color:var(--fg-3)}
+.proto{margin-left:auto;font-size:12px;color:var(--fg-3);border:1px dashed var(--line-2);border-radius:6px;padding:3px 8px}
+
+/* layout */
+.page{display:grid;grid-template-columns:minmax(0,1fr) 440px;min-height:calc(100vh - 112px)}
+.main{padding:18px 28px 40px;min-width:0}
+.voice{border-left:1px solid var(--line);background:var(--panel-2);padding:18px 22px 40px;min-width:0}
+.voice-inner{position:sticky;top:76px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
+
+/* attention strip */
+.attention{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.att{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--fg)}
+.att:hover{border-color:var(--olive)}
+.att.warn{border-color:var(--warn-line);background:var(--warn-bg);color:var(--warn)}
+.att svg{flex:none}
+.att .n{font-weight:600;font-variant-numeric:tabular-nums}
+.jump{display:none;text-decoration:none}
+.key{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--fg-3);margin-top:8px}
+.key i{display:inline-block;width:22px;height:12px;border-radius:3px}
+.reply{font-size:13px;color:var(--fg-2);margin:6px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 15px;min-width:0}
+.tile .lab{font-size:13px;color:var(--fg-2)}
+.tile .val{font:600 28px/1.15 'IBM Plex Sans';margin-top:4px;letter-spacing:-.01em}
+.tile .sub{font-size:12px;color:var(--fg-3);margin-top:2px}
+.delta{color:var(--fg-2)} .delta.up{color:var(--olive-ink)}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:22px 0 14px}
+.tabs button{border:0;background:none;padding:8px 14px;cursor:pointer;color:var(--fg-2);border-bottom:2px solid transparent;margin-bottom:-1px;font-size:14px}
+.tabs button:hover{color:var(--fg)}
+.tabs button[aria-selected="true"]{color:var(--fg);font-weight:600;border-bottom-color:var(--olive)}
+.panelgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px 16px;min-width:0}
+.card.wide{grid-column:1/-1}
+.card-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
+.card-h h3{margin:0;font:600 15px 'IBM Plex Sans'}
+.card-h .meta{font-size:12px;color:var(--fg-3)}
+.tbtn{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer;color:var(--fg-2)}
+.tbtn:hover{border-color:var(--olive);color:var(--fg)}
+.tbtn[aria-pressed="true"]{background:var(--olive-wash);border-color:var(--olive);color:var(--olive-ink)}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.chart .grid line{stroke:var(--line)}
+.chart .axis text{fill:var(--fg-3);font-size:11px;font-variant-numeric:tabular-nums}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--fg-2);margin-top:6px}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+table.data{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.data th{text-align:left;font-weight:500;color:var(--fg-3);font-size:12px;border-bottom:1px solid var(--line);padding:6px 8px}
+table.data td{border-bottom:1px solid var(--line);padding:6px 8px}
+table.data td.r,table.data th.r{text-align:right}
+.tablewrap{max-height:260px;overflow:auto}
+.hit{cursor:crosshair}
+.mark:hover,.mark:focus{opacity:.82}
+.mark:focus{outline:none;stroke:var(--fg);stroke-width:2}
+.meter{height:10px;border-radius:5px;background:var(--zero);overflow:hidden;margin:10px 0 6px}
+.meter span{display:block;height:100%;background:var(--olive)}
+.meter.warn span{background:var(--warn)}
+.gapbar{height:6px;border-radius:3px;background:var(--olive);display:inline-block;vertical-align:middle;margin-right:8px}
+.empty{padding:24px 6px;color:var(--fg-3);font-size:13px;text-align:center}
+
+/* tooltip */
+#tip{position:fixed;pointer-events:none;z-index:50;background:var(--panel);color:var(--fg);border:1px solid var(--line-2);border-radius:8px;box-shadow:var(--shadow);padding:8px 10px;font-size:12px;min-width:120px;opacity:0;transform:translateY(4px);transition:opacity .12s ease-out,transform .12s ease-out}
+#tip.on{opacity:1;transform:none}
+#tip .t{color:var(--fg-3);margin-bottom:4px}
+#tip .row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+#tip .row b{font:600 14px 'IBM Plex Sans';font-variant-numeric:tabular-nums}
+#tip .key{display:inline-block;width:12px;height:2px;margin-right:6px;vertical-align:middle}
+
+/* voice column */
+.voice h2{font:600 20px 'Source Serif 4',serif;margin:0}
+.voice .scope{font-size:12px;color:var(--fg-3);margin:2px 0 10px}
+.vtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.vtabs button{border:0;background:none;padding:6px 10px;font-size:13px;cursor:pointer;color:var(--fg-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+.vtabs button[aria-selected="true"]{color:var(--fg);font-weight:600;border-bottom-color:var(--olive)}
+.vsearch{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.vsearch input{flex:1;min-width:0}
+.vlist{overflow:auto;padding-right:4px;flex:1}
+.vnote{font-size:12px;color:var(--fg-2);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 10px;margin-bottom:10px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:10px}
+.item summary{list-style:none;cursor:pointer;padding:11px 13px;border-radius:9px}
+.item summary::-webkit-details-marker{display:none}
+.item summary:hover{background:var(--olive-wash)}
+.item[open] summary{border-bottom:1px solid var(--line);border-radius:9px 9px 0 0}
+.tagrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--fg-3)}
+.tag{font:12px 'IBM Plex Sans';padding:1px 7px;border-radius:5px;border:1px solid var(--line-2);color:var(--olive-ink);background:var(--panel)}
+.tag.rep{color:var(--fg);border-color:var(--fg-3)}
+.tag.site{color:var(--fg-2)}
+.quote{font:16px/1.5 'Source Serif 4',serif;margin:6px 0 0;color:var(--fg)}
+.exch{padding:10px 13px 12px}
+.turn{margin:0 0 10px}
+.who{font-size:12px;color:var(--fg-3);margin-bottom:2px}
+.turn p{font:15px/1.55 'Source Serif 4',serif;margin:0}
+.cite{font:12px 'IBM Plex Sans';background:var(--olive-wash);color:var(--olive-ink);border-radius:4px;padding:1px 6px;white-space:nowrap}
+.more{background:none;border:0;color:var(--olive-ink);cursor:pointer;padding:0;font-size:13px;text-decoration:underline;text-underline-offset:3px}
+.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.count{font-variant-numeric:tabular-nums;color:var(--fg-3);font-weight:400}
+
+@media (max-width:1100px){
+  .jump{display:inline-flex}
+  .page{grid-template-columns:1fr}
+  .voice{border-left:0;border-top:1px solid var(--line)}
+  .voice-inner{position:static;max-height:none}
+}
+@media (max-width:720px){
+  .topbar,.filters,.main{padding-left:16px;padding-right:16px}
+  .voice{padding:18px 16px}
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .panelgrid{grid-template-columns:1fr}
+  .brand .area{display:none}
+  .topbar .right{gap:2px}
+  .linkish{padding:6px 6px;font-size:12px}
+  .filters{position:static}
+  .proto{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){#tip{transition:none}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="name">Network Design Labs</span><span class="area">Admin · WatBot and feedback</span></div>
+  <div class="right"><button class="linkish" id="themeBtn" aria-pressed="false">Dark mode</button><a class="linkish" href="https://app.networkdesignbook.com/">Back to labs</a></div>
+</header>
+
+<div class="filters" role="region" aria-label="Filters">
+  <div class="seg" role="group" aria-label="Date range" id="rangeSeg">
+    <button data-days="7" aria-pressed="false">7 days</button>
+    <button data-days="30" aria-pressed="true">30 days</button>
+    <button data-days="90" aria-pressed="false">90 days</button>
+    <button data-days="custom" aria-pressed="false">Custom</button>
+  </div>
+  <span class="custom" id="custom"><label class="field">From <input type="date" id="from"></label><label class="field">to <input type="date" id="to"></label></span>
+  <label class="field">Chapter <select id="chapter"><option value="all">All chapters</option></select></label>
+  <span class="note">Days in UTC · today is 26 Nov 2026</span>
+  <span class="proto">Prototype · sample data, not production</span>
+</div>
+
+<div class="page">
+  <main class="main">
+    <div class="attention" id="attention" aria-label="Needs attention"></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="tabs" role="tablist" aria-label="Metric groups" id="tabs">
+      <button role="tab" data-tab="usage" aria-selected="true">Usage</button>
+      <button role="tab" data-tab="quality" aria-selected="false">Quality</button>
+      <button role="tab" data-tab="cost" aria-selected="false">Cost</button>
+      <button role="tab" data-tab="reliability" aria-selected="false">Reliability</button>
+    </div>
+    <div class="panelgrid" id="panel" role="tabpanel"></div>
+  </main>
+  <aside class="voice" id="voice" aria-label="What students said" tabindex="-1">
+    <div class="voice-inner">
+      <h2>What students said</h2>
+      <p class="scope" id="vscope"></p>
+      <div class="vtabs" role="tablist" aria-label="Kinds of feedback" id="vtabs">
+        <button role="tab" data-v="all" aria-selected="true">All <span class="count" id="c-all"></span></button>
+        <button role="tab" data-v="flagged" aria-selected="false">Flagged answers <span class="count" id="c-flagged"></span></button>
+        <button role="tab" data-v="site" aria-selected="false">Site feedback <span class="count" id="c-site"></span></button>
+      </div>
+      <div class="vsearch"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input type="search" id="vq" placeholder="Search what students wrote" aria-label="Search what students wrote"></div>
+      <div id="vnote"></div>
+      <div class="vlist" id="vlist"></div>
+    </div>
+  </aside>
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+const DAY = 86400000;
+const TODAY = Date.UTC(2026, 10, 26);
+const CAP = 50, FAIL_LIMIT = 0.04;
+const CHAPTERS = [["ch3","Ch 3"],["ch4","Ch 4"],["ch5","Ch 5"],["ch9","Ch 9"],["ch10","Ch 10"]];
+const TYPES = [["concept","Concept"],["incorrect","Incorrect attempt"],["correct","Correct attempt"],["stuck","Stuck"],["offtopic","Off-topic"]];
+const REASONS = [["still_stuck","Still stuck"],["not_what_i_asked","Not what I asked"],["hard_to_follow","Hard to follow"],["too_many_questions","Too many questions"],["other","Other"]];
+const REPORTS = [["wrong","Wrong or misleading"],["citation","Citation doesn't support it"],["not_asked","Not what I asked"],["other","Other"]];
+const chName = Object.fromEntries(CHAPTERS), tName = Object.fromEntries(TYPES), rName = Object.fromEntries(REASONS), pName = Object.fromEntries(REPORTS);
+
+/* ---------- made-up data, deterministic ---------- */
+let s = 20261126;
+const rnd = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const pick = (w) => { let r = rnd() * w.reduce((a, b) => a + b, 0); for (let i = 0; i < w.length; i++) { r -= w[i]; if (r < 0) return i; } return w.length - 1; };
+const Q = [];
+for (let ago = 179; ago >= 0; ago--) {
+  const day = TODAY - ago * DAY, dow = new Date(day).getUTCDay();
+  const base = (dow === 0 || dow === 6 ? 16 : 34) + (179 - ago) * 0.1;
+  const n = Math.round(base * (0.75 + rnd() * 0.5));
+  for (let i = 0; i < n; i++) {
+    const c = pick([28, 14, 18, 30, 10]);
+    const t = pick(c === 3 ? [26, 18, 14, 38, 4] : [32, 20, 20, 24, 4]);
+    const failSpike = ago === 5 || ago === 6;
+    const o = rnd(), outcome = failSpike && o < 0.09 ? "unavailable" : o < 0.010 ? "cancelled" : o < 0.018 ? "unavailable" : o < 0.023 ? "limit" : "answered";
+    const lat = Math.round(1800 + Math.exp(rnd() * 2.2) * 420 + (t === 3 ? 600 : 0));
+    const cost = outcome === "answered" ? +((0.022 + rnd() * 0.03 + (t === 0 || t === 3 ? 0.008 : 0)) * 0.82).toFixed(4) : 0;
+    const input = Math.round(8000 + rnd() * 5000), cacheRead = Math.round(input * (0.62 + rnd() * 0.18));
+    let rating = null;
+    if (outcome === "answered" && rnd() < 0.31) {
+      const helped = rnd() < (c === 3 && t === 3 ? 0.62 : 0.81);
+      rating = helped ? { helped: true } : { helped: false, reason: REASONS[pick([38, 24, 18, 12, 8])][0], reanswered: rnd() < 0.55 };
+    }
+    Q.push({ day, ch: CHAPTERS[c][0], type: TYPES[t][0], student: 1 + Math.min(169, Math.floor(-Math.log(1 - rnd()) * 20)),
+      outcome, lat, cost, input, output: Math.round(250 + rnd() * 300), cacheRead, cacheWrite: Math.round(rnd() * 600),
+      notice: outcome === "answered" && rnd() < 0.86, refused: rnd() < 0.003, stopped: rnd() < 0.009, estimated: rnd() < 0.008,
+      rating, report: outcome === "answered" && rnd() < 0.006 ? REPORTS[pick([30, 34, 22, 14])][0] : null, gap: null });
+  }
+}
+const GAPS = [["Lagrangian relaxation", "ch9"], ["Inventory holding cost", "ch5"], ["Mixed-integer duality", "ch3"], ["Route-level vehicle routing", "ch5"], ["Carbon emissions as a constraint", "ch9"], ["Stochastic demand", "ch4"], ["Tariffs and duties", "ch10"], ["Facility capacity expansion over time", "ch3"]];
+Q.forEach(q => { if (q.outcome === "answered" && rnd() < 0.012) { const g = GAPS[pick([20, 16, 12, 10, 9, 8, 6, 5])]; if (g[1] === q.ch || rnd() < 0.3) q.gap = g[0]; } });
+
+const ago = (n, h = 10) => TODAY - n * DAY + h * 3600000;
+const FLAGGED = [
+ { at: ago(1, 14), ch: "ch9", type: "stuck", kind: "rating", reason: "still_stuck", q: "I still don't get why the refinery near the mine isn't picked. Isn't closer always cheaper?", a: "I can't tell you which refinery wins, but the chapter explains what else the cost depends on: the model weighs both legs, mine to refinery and refinery to customer, by their volumes and rates.", cites: ["Ch 9 · p.212"], note: "still doesn't say what to look at in my output", re: "Look at the two cost columns in your Output Map summary. Which leg carries more volume, and what does that do to where the refinery is pulled?" },
+ { at: ago(2, 9), ch: "ch4", type: "concept", kind: "report", reason: "citation", q: "Why does a bigger coverage radius never lower covered demand?", a: "A customer counts as covered once a chosen site is within the service distance, so a larger distance can only add customers to that set.", cites: ["Ch 4 · p.96"], note: "The quote it showed doesn't say anything about coverage radius." },
+ { at: ago(3, 16), ch: "ch3", type: "concept", kind: "rating", reason: "hard_to_follow", q: "What is a demand node and why is it weighted?", a: "Each customer is a point with a demand, and the objective multiplies each assigned distance by that demand, so large customers pull the solution harder.", cites: ["Ch 3 · p.71", "NB 3 · cell 9"], note: "", re: "One idea at a time: a demand node is one customer location. Its weight is how much it orders. Bigger orders matter more to the total." },
+ { at: ago(4, 11), ch: "ch5", type: "incorrect", kind: "rating", reason: "not_what_i_asked", q: "If I raise the cost of the long lanes the same warehouses stay open, right?", a: "What does the chapter say happens to assignments when one lane's cost rises above its neighbours'?", cites: ["Ch 5 · p.134"], note: "I asked about warehouses, not assignments" },
+ { at: ago(5, 15), ch: "ch9", type: "stuck", kind: "rating", reason: "still_stuck", q: "Just tell me if the Reno refinery is open or not.", a: "I won't give you the result, but the BOM ratio is the term that decides how strongly raw-gold volume pulls a refinery toward the mines.", cites: ["Ch 9 · p.205"], note: "" },
+ { at: ago(6, 13), ch: "ch10", type: "concept", kind: "report", reason: "wrong", q: "Does the tariff apply per unit or per shipment?", a: "The chapter applies it per unit moved across the border.", cites: ["Ch 10 · p.251"], note: "My notes from class say per shipment. One of them is wrong." },
+ { at: ago(8, 10), ch: "ch3", type: "correct", kind: "rating", reason: "too_many_questions", q: "So the sum of all X_i has to equal P, the number of facilities we may open.", a: "What would change if that equality were 'at most P' instead? And which scenario would answer that? And what would the objective do?", cites: ["Ch 3 · p.74"], note: "", re: "Yes. The equality makes each scenario answer 'the best P', which is why the book runs one scenario per P." },
+ { at: ago(9, 17), ch: "ch9", type: "incorrect", kind: "rating", reason: "other", q: "Capacity only matters for the plants, not the warehouses.", a: "Check the capacity inputs for both echelons: where does the chapter put a limit?", cites: ["Ch 9 · p.198"], note: "answer was fine but it cut off mid-sentence" },
+ { at: ago(12, 12), ch: "ch5", type: "concept", kind: "rating", reason: "hard_to_follow", q: "What is the difference between the base cost and an override?", a: "The base cost comes from the reference table; an override replaces it for one warehouse–customer pair only.", cites: ["Ch 5 · p.129"], note: "" },
+ { at: ago(16, 9), ch: "ch4", type: "stuck", kind: "rating", reason: "still_stuck", q: "I've tried p = 3 and p = 4 and coverage barely changes. What am I missing?", a: "I can't give you the answer, but the chapter shows how the threshold interacts with p. Which customers sit just outside the service distance?", cites: ["Ch 4 · p.101"], note: "" },
+ { at: ago(23, 14), ch: "ch9", type: "concept", kind: "report", reason: "not_asked", q: "How do I export the flows table?", a: "Flows are reported per product and per leg in the course notebook.", cites: ["NB 9 · cell 14"], note: "I wanted the button in the app, not the notebook." },
+ { at: ago(41, 10), ch: "ch3", type: "stuck", kind: "rating", reason: "still_stuck", q: "Can you confirm my three sites are optimal?", a: "I can't confirm results, but you can check them: compare your objective with other combinations of three.", cites: ["Ch 3 · p.80"], note: "" },
+ { at: ago(63, 15), ch: "ch5", type: "correct", kind: "rating", reason: "other", q: "The baseline is my current network, so the difference is what the redesign saves.", a: "That's how the chapter frames it: the baseline is the model of the existing network.", cites: ["Ch 5 · p.121"], note: "good answer but it said a part was removed, confusing" }
+];
+const SITE = [
+ { at: ago(0, 8), body: "The compare page should let me pin two scenarios side by side instead of picking them again every time." },
+ { at: ago(2, 19), body: "Dark mode on the map is great. The legend text is a bit small on my laptop though." },
+ { at: ago(3, 7), body: "I lost my unsaved overrides when the session expired. A warning before it logs me out would help a lot, especially in the lab when I step away for a few minutes and come back to a login page and everything I typed into the cost table is gone and I have to start over from the CSV I exported yesterday." },
+ { at: ago(7, 13), body: "Could WatBot remember which scenario I was on when I reopen the panel?" },
+ { at: ago(11, 21), body: "The Chapter 9 page takes a while to load on campus Wi-Fi." },
+ { at: ago(19, 10), body: "Love that it won't just give the answer. Annoying, but it made me actually read the chapter." },
+ { at: ago(34, 16), body: "Typo on the terms page: 'recieve'." },
+ { at: ago(58, 12), body: "Please add keyboard shortcuts for solve and save." }
+];
+
+/* ---------- state ---------- */
+const state = { days: 30, from: null, to: null, ch: "all", tab: "usage", vtab: "all", vq: "", tables: {} };
+const fmt = new Intl.NumberFormat("en-US");
+const usd = (v, d = 2) => "$" + v.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const pct = (v) => (v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0) + "%";
+const dlabel = (t) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const range = () => {
+  if (state.days === "custom" && state.from && state.to) return [state.from, state.to + DAY];
+  const n = state.days === "custom" ? 30 : state.days;
+  return [TODAY - (n - 1) * DAY, TODAY + DAY];
+};
+const inRange = (t, [a, b]) => t >= a && t < b;
+const filt = (r) => Q.filter(q => inRange(q.day, r) && (state.ch === "all" || q.ch === state.ch));
+const prior = ([a, b]) => [a - (b - a), a];
+const median = (xs) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+const p95 = (xs) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(a.length * 0.95))]; };
+const days = ([a, b]) => { const out = []; for (let t = a; t < b; t += DAY) out.push(t); return out; };
+const weekStart = (t) => { const d = new Date(t).getUTCDay(); return t - ((d + 6) % 7) * DAY; };
+const weeks = (r) => [...new Set(days(r).map(weekStart))];
+const el = (tag, attrs = {}, kids = []) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === "text") e.textContent = v; else if (k === "class") e.className = v; else e.setAttribute(k, v); } for (const k of [].concat(kids)) if (k) e.append(k); return e; };
+const NS = "http://www.w3.org/2000/svg";
+const sv = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- tooltip ---------- */
+const tip = document.getElementById("tip");
+function showTip(x, y, title, rows) {
+  tip.replaceChildren(el("div", { class: "t", text: title }), ...rows.map(([label, value, color]) => {
+    const l = el("span"); if (color) { const k = el("span", { class: "key" }); k.style.background = color; l.append(k); } l.append(document.createTextNode(label));
+    return el("div", { class: "row" }, [el("b", { text: value }), l]);
+  }));
+  tip.classList.add("on");
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(window.innerWidth - w - 8, Math.max(8, x + 14)) + "px";
+  tip.style.top = Math.max(8, y - h - 12) + "px";
+}
+const hideTip = () => tip.classList.remove("on");
+
+/* ---------- charts ---------- */
+const pending = [];
+function card(id, title, meta, draw, table, wide) {
+  const c = el("section", { class: "card" + (wide ? " wide" : ""), "aria-labelledby": id + "-h" });
+  const btn = el("button", { class: "tbtn", "aria-pressed": state.tables[id] ? "true" : "false", text: "Table" });
+  const h = el("div", { class: "card-h" }, [el("div", {}, [el("h3", { id: id + "-h", text: title }), meta ? el("div", { class: "meta", text: meta }) : null]), table ? btn : null]);
+  const body = el("div", { class: "chart" });
+  const render = () => { const W = Math.max(260, Math.round(body.clientWidth || 520)); body.replaceChildren(state.tables[id] && table ? tableEl(table) : draw(W)); btn.setAttribute("aria-pressed", state.tables[id] ? "true" : "false"); };
+  btn.onclick = () => { state.tables[id] = !state.tables[id]; render(); };
+  c.append(h, body); pending.push(render); return c;
+}
+function tableEl({ cols, rows }) {
+  const t = el("table", { class: "data" });
+  t.append(el("thead", {}, el("tr", {}, cols.map((c, i) => el("th", { class: i ? "r" : "", text: c })))));
+  t.append(el("tbody", {}, rows.map(r => el("tr", {}, r.map((v, i) => el("td", { class: i ? "r" : "", text: v }))))));
+  return el("div", { class: "tablewrap" }, t);
+}
+function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; }
+
+function lineChart({ xs, series, yFmt = fmt.format, xFmt = dlabel, h = 190, yMax, W = 560, ref }) {
+  const H = h, L = 44, R = 12, T = 10, B = 24;
+  const all = series.flatMap(s => s.values.filter(v => v != null));
+  const max = yMax ?? niceMax(Math.max(1, ...all));
+  const x = (i) => L + (xs.length < 2 ? (W - L - R) / 2 : i * (W - L - R) / (xs.length - 1));
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": series.map(s => s.name).join(", ") + " over time; use the Table button for values" });
+  const g = sv("g", { class: "grid" }), ax = sv("g", { class: "axis" });
+  [0, 0.5, 1].forEach(f => { g.append(sv("line", { x1: L, x2: W - R, y1: y(max * f), y2: y(max * f) })); const t = sv("text", { x: L - 8, y: y(max * f) + 4, "text-anchor": "end" }); t.textContent = yFmt(max * f); ax.append(t); });
+  const step = Math.max(1, Math.ceil(xs.length / Math.max(2, Math.floor(W / 95))));
+  xs.forEach((d, i) => { if ((i % step === 0 && xs.length - 1 - i >= step * 0.6) || i === xs.length - 1) { const t = sv("text", { x: x(i), y: H - 6, "text-anchor": i === 0 ? "start" : i === xs.length - 1 ? "end" : "middle" }); t.textContent = xFmt(d); ax.append(t); } });
+  svg.append(g, ax);
+  if (ref) { const yy = y(ref.v); svg.append(sv("line", { x1: L, x2: W - R, y1: yy, y2: yy, stroke: css("--grey-series"), "stroke-width": 1 })); const t = sv("text", { x: W - R, y: yy - 5, "text-anchor": "end", fill: css("--fg-3"), "font-size": 11 }); t.textContent = ref.label; svg.append(t); }
+  series.forEach(s => {
+    let d = "", pen = false;
+    s.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? "L" : "M") + x(i) + " " + y(v); pen = true; });
+    svg.append(sv("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    if (s.endLabel) { let li = s.values.length - 1; while (li >= 0 && s.values[li] == null) li--; if (li >= 0) { const t = sv("text", { x: x(li) - 4, y: y(s.values[li]) - 8, "text-anchor": "end", fill: css("--fg-2"), "font-size": 11 }); t.textContent = s.name; svg.append(t); } }
+  });
+  const cross = sv("line", { y1: T, y2: H - B, stroke: css("--fg-3"), "stroke-width": 1, opacity: 0 });
+  const dots = series.map(s => { const c = sv("circle", { r: 4.5, fill: s.color, stroke: css("--panel"), "stroke-width": 2, opacity: 0 }); return c; });
+  svg.append(cross, ...dots);
+  const hit = sv("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent", class: "hit", tabindex: 0, "aria-label": "Chart values: use arrow keys" });
+  let cur = xs.length - 1;
+  const show = (i, cx, cy) => {
+    cur = i; const px = x(i); cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("opacity", 1);
+    series.forEach((s, k) => { const v = s.values[i]; if (v == null) dots[k].setAttribute("opacity", 0); else { dots[k].setAttribute("cx", px); dots[k].setAttribute("cy", y(v)); dots[k].setAttribute("opacity", 1); } });
+    showTip(cx, cy, xFmt(xs[i]), series.map(s => [s.name + (s.nOf ? ` (n = ${s.nOf[i]})` : ""), s.values[i] == null ? "–" : yFmt(s.values[i]), s.color]));
+  };
+  const toIndex = (evt) => { const r = svg.getBoundingClientRect(); const sx = (evt.clientX - r.left) * W / r.width; return Math.max(0, Math.min(xs.length - 1, Math.round((sx - L) / ((W - L - R) / Math.max(1, xs.length - 1))))); };
+  hit.addEventListener("pointermove", e => show(toIndex(e), e.clientX, e.clientY));
+  const off = () => { cross.setAttribute("opacity", 0); dots.forEach(d => d.setAttribute("opacity", 0)); hideTip(); };
+  hit.addEventListener("pointerleave", off); hit.addEventListener("blur", off);
+  const kshow = () => { const r = svg.getBoundingClientRect(); show(cur, r.left + x(cur) * r.width / W, r.top + 20); };
+  hit.addEventListener("focus", kshow);
+  hit.addEventListener("keydown", e => { if (e.key === "ArrowLeft") { cur = Math.max(0, cur - 1); kshow(); e.preventDefault(); } if (e.key === "ArrowRight") { cur = Math.min(xs.length - 1, cur + 1); kshow(); e.preventDefault(); } });
+  svg.append(hit);
+  const wrap = el("div", {}, svg);
+  if (series.length > 1) wrap.append(el("div", { class: "legend" }, series.map(s => { const sp = el("span"); const i = el("i"); i.style.background = s.color; sp.append(i, document.createTextNode(s.name)); return sp; })));
+  return wrap;
+}
+
+function barChart({ items, vFmt = fmt.format, horizontal = true, color, W = 560 }) {
+  if (!items.some(i => i[1] > 0)) return el("div", { class: "empty", text: "Nothing in this range." });
+  const rowH = 30, L = horizontal ? Math.min(160, Math.round(W * 0.38)) : 44, H = horizontal ? items.length * rowH + 8 : 190;
+  const max = niceMax(Math.max(...items.map(i => i[1])));
+  const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Bar chart; use the Table button for values" });
+  if (horizontal) {
+    items.forEach(([label, v], i) => {
+      const y = 4 + i * rowH, w = Math.max(v > 0 ? 2 : 0, (W - L - 50) * v / max);
+      const t = sv("text", { x: L - 10, y: y + 17, "text-anchor": "end", fill: css("--fg"), "font-size": 13 }); t.textContent = label;
+      const r = sv("rect", { x: L, y: y + 5, width: w, height: 16, rx: 4, fill: color || css("--olive"), class: "mark", tabindex: 0, "aria-label": `${label}: ${vFmt(v)}` });
+      const vt = sv("text", { x: Math.min(L + w + 8, W - 30), y: y + 17, fill: css("--fg-2"), "font-size": 12, "font-variant-numeric": "tabular-nums" }); vt.textContent = vFmt(v);
+      const hover = (e) => { const b = r.getBoundingClientRect(); showTip(e?.clientX ?? b.right, e?.clientY ?? b.top, label, [["", vFmt(v)]]); };
+      r.addEventListener("pointermove", hover); r.addEventListener("focus", () => hover()); r.addEventListener("pointerleave", hideTip); r.addEventListener("blur", hideTip);
+      svg.append(t, r, vt);
+    });
+  } else {
+    const T = 10, B = 24, bw = (W - L - 12) / items.length;
+    const g = sv("g", { class: "grid" }), ax = sv("g", { class: "axis" });
+    [0, .5, 1].forEach(f => { const yy = T + (H - T - B) * (1 - f); g.append(sv("line", { x1: L, x2: W - 12, y1: yy, y2: yy })); const t = sv("text", { x: L - 8, y: yy + 4, "text-anchor": "end" }); t.textContent = vFmt(max * f); ax.append(t); });
+    svg.append(g, ax);
+    const step = Math.max(1, Math.ceil(items.length / Math.max(2, Math.floor(W / 95))));
+    items.forEach(([label, v], i) => {
+      const hh = (H - T - B) * v / max, x = L + i * bw + 1;
+      const r = sv("rect", { x, y: H - B - hh, width: Math.max(1, bw - 2), height: hh, rx: Math.min(4, bw / 3), fill: color || css("--olive"), class: "mark", tabindex: 0, "aria-label": `${label}: ${vFmt(v)}` });
+      const hover = (e) => { const b = r.getBoundingClientRect(); showTip(e?.clientX ?? b.left, e?.clientY ?? b.top, label, [["", vFmt(v)]]); };
+      r.addEventListener("pointermove", hover); r.addEventListener("focus", () => hover()); r.addEventListener("pointerleave", hideTip); r.addEventListener("blur", hideTip);
+      svg.append(r);
+      if (i % step === 0) { const t = sv("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle" }); t.textContent = label; ax.append(t); }
+    });
+  }
+  return svg;
+}
+
+function heatCounts(qs) {
+  const rows = state.ch === "all" ? CHAPTERS : CHAPTERS.filter(c => c[0] === state.ch);
+  return { rows, counts: rows.map(([c]) => TYPES.map(([t]) => qs.filter(q => q.ch === c && q.type === t && q.outcome === "answered").length)) };
+}
+function heatmap(qs, W = 560) {
+  const rows = state.ch === "all" ? CHAPTERS : CHAPTERS.filter(c => c[0] === state.ch);
+  const counts = rows.map(([c]) => TYPES.map(([t]) => qs.filter(q => q.ch === c && q.type === t && q.outcome === "answered").length));
+  const nz = counts.flat().filter(v => v > 0).sort((a, b) => a - b);
+  const cut = [0.2, 0.4, 0.6, 0.8].map(f => nz[Math.floor(f * (nz.length - 1))] ?? 0);
+  const bin = (v) => v === 0 ? -1 : cut.filter(c => v > c).length;
+  const ramp = ["--r0", "--r1", "--r2", "--r3", "--r4"].map(css);
+  const dark = document.documentElement.dataset.theme === "dark";
+  const L = 56, T = 22, cw = (W - L) / TYPES.length, ch = 34, H = T + rows.length * ch + 4;
+  const short = cw < 60;
+  const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Questions by chapter and message type; darker means more; use the Table button for values" });
+  TYPES.forEach(([, n], j) => { const t = sv("text", { x: L + j * cw + cw / 2, y: 14, "text-anchor": "middle", fill: css("--fg-3"), "font-size": 11 }); t.textContent = short ? ({ Concept: "Concept", "Incorrect attempt": "Incorr.", "Correct attempt": "Corr.", Stuck: "Stuck", "Off-topic": "Off-top." })[n] : n.replace(" attempt", ""); svg.append(t); });
+  rows.forEach(([c, n], i) => {
+    const t = sv("text", { x: 0, y: T + i * ch + 22, fill: css("--fg"), "font-size": 13 }); t.textContent = n; svg.append(t);
+    TYPES.forEach(([tt, tn], j) => {
+      const v = counts[i][j], b = bin(v), fill = b < 0 ? css("--zero") : ramp[b];
+      // Label ink per step: white only where it clears 4.5:1 (light r1–r4, dark r0 only).
+      const ink = b < 0 ? css("--fg-2") : (dark ? (b >= 1 ? "#14170F" : "#FFFFFF") : (b === 0 ? "#14170F" : "#FFFFFF"));
+      const r = sv("rect", { x: L + j * cw + 1, y: T + i * ch + 1, width: cw - 2, height: ch - 2, rx: 4, fill, class: "mark", tabindex: 0, "aria-label": `${n}, ${tn}: ${v} questions` });
+      const lab = sv("text", { x: L + j * cw + cw / 2, y: T + i * ch + 22, "text-anchor": "middle", "font-size": 12, "font-weight": 600, fill: ink, "pointer-events": "none", "font-variant-numeric": "tabular-nums" });
+      lab.textContent = fmt.format(v);
+      const hover = (e) => { const bb = r.getBoundingClientRect(); showTip(e?.clientX ?? bb.right, e?.clientY ?? bb.top, `${n} · ${tn}`, [["questions", fmt.format(v)]]); };
+      r.addEventListener("pointermove", hover); r.addEventListener("focus", () => hover()); r.addEventListener("pointerleave", hideTip); r.addEventListener("blur", hideTip);
+      svg.append(r, lab);
+    });
+  });
+  const key = el("div", { class: "key" }, [el("span", { text: "None" }), (() => { const i = el("i"); i.style.background = css("--zero"); return i; })(), el("span", { text: "· fewer" }), ...ramp.map(c => { const i = el("i"); i.style.background = c; return i; }), el("span", { text: "more" })]);
+  return el("div", {}, [svg, key]);
+}
+
+/* ---------- metrics ---------- */
+function metrics(r) {
+  const qs = filt(r), ans = qs.filter(q => q.outcome === "answered");
+  const rated = ans.filter(q => q.rating), helped = rated.filter(q => q.rating.helped).length;
+  const spend = ans.reduce((a, q) => a + q.cost, 0);
+  return { qs, ans, rated, helped, spend, students: new Set(ans.map(q => q.student)).size,
+    helpedRate: rated.length ? helped / rated.length : null, costPerQ: ans.length ? spend / ans.length : 0 };
+}
+function sessions(ans) {
+  const g = new Map();
+  ans.forEach(q => { const k = q.student + "|" + q.ch + "|" + q.day; g.set(k, (g.get(k) || 0) + 1); });
+  return [...g.entries()].map(([k, n]) => ({ week: weekStart(+k.split("|")[2]), n, mins: 3 + (n * 7 + (+k.split("|")[0] % 11)) % 24 }));
+}
+
+/* ---------- render ---------- */
+function renderTiles(m, pm) {
+  const tiles = document.getElementById("tiles");
+  const delta = (a, b, better = 1, asPts = false) => {
+    if (b == null || a == null || (!asPts && !b)) return null;
+    const d = asPts ? (a - b) * 100 : (a - b) / b * 100;
+    const good = d * better >= 0;
+    const s = el("span", { class: "delta " + (Math.abs(d) < 0.5 ? "" : good ? "up" : "down"), text: (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(asPts ? 1 : 0) + (asPts ? " pts" : "%") });
+    return s;
+  };
+  const tile = (lab, val, subParts) => el("div", { class: "tile" }, [el("div", { class: "lab", text: lab }), el("div", { class: "val", text: val }), el("div", { class: "sub" }, subParts)]);
+  const vsPrior = (d) => d ? [d, document.createTextNode(" vs previous period")] : [document.createTextNode("no earlier data")];
+  tiles.replaceChildren(
+    tile("Questions answered", fmt.format(m.ans.length), vsPrior(delta(m.ans.length, pm.ans.length))),
+    tile("Active students", fmt.format(m.students), vsPrior(delta(m.students, pm.students))),
+    tile("Helped", m.rated.length < 5 ? "–" : pct(m.helpedRate), m.rated.length < 5 ? [document.createTextNode(`only ${m.rated.length} ratings`)] : [document.createTextNode(`${fmt.format(m.rated.length)} ratings · `), delta(m.helpedRate, pm.helpedRate, 1, true) || document.createTextNode("")]),
+    tile("Cost per question", usd(m.costPerQ, 3), vsPrior(delta(m.costPerQ, pm.costPerQ, -1)))
+  );
+}
+
+function monthToDate() { const start = Date.UTC(2026, 10, 1); return Q.filter(q => q.day >= start && q.day <= TODAY && q.outcome === "answered").reduce((a, q) => a + q.cost, 0); }
+
+function renderAttention(m) {
+  const box = document.getElementById("attention"); box.replaceChildren();
+  const warnIcon = () => { const s = sv("svg", { width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": "true" }); s.append(sv("path", { d: "M8 2 15 14H1Z", fill: "none", stroke: "currentColor", "stroke-width": 1.5, "stroke-linejoin": "round" }), sv("path", { d: "M8 6.5v3.5M8 12v.01", stroke: "currentColor", "stroke-width": 1.6, "stroke-linecap": "round" })); return s; };
+  const okIcon = () => { const s = sv("svg", { width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": "true" }); s.append(sv("path", { d: "M3 8.5 6.5 12 13 4.5", fill: "none", stroke: "currentColor", "stroke-width": 1.6, "stroke-linecap": "round", "stroke-linejoin": "round" })); return s; };
+  const add = (cls, icon, kids, go, tag = "button") => { const b = el(tag, { class: "att " + cls }, [icon, ...kids]); if (tag === "a") b.href = "#voice"; else b.onclick = go; box.append(b); return b; };
+  const T = (x) => document.createTextNode(x), N = (x) => el("span", { class: "n", text: String(x) });
+  const mtd = monthToDate();
+  const over = mtd / CAP >= 0.8;
+  add(over ? "warn" : "", over ? warnIcon() : okIcon(), [T(`Spend ${usd(mtd)} of the ${usd(CAP, 0)} November cap (${pct(mtd / CAP)})${over ? "" : " · normal"}`)], () => setTab("cost"));
+  const last7 = Q.filter(q => q.day > TODAY - 7 * DAY && (state.ch === "all" || q.ch === state.ch));
+  const fail = last7.length ? last7.filter(q => q.outcome !== "answered").length / last7.length : 0;
+  const bad = fail > FAIL_LIMIT;
+  add("", bad ? warnIcon() : okIcon(), [T(`Not answered, last 7 days: ${pct(fail)}${bad ? " · above 4%" : " · normal"}`)], () => setTab("reliability"));
+  const flagged7 = FLAGGED.filter(f => f.at > TODAY - 6 * DAY && (state.ch === "all" || f.ch === state.ch)).length;
+  add("", T(""), [N(flagged7), T(` flagged answer${flagged7 === 1 ? "" : "s"} this week`)], () => setV("flagged"));
+  const site7 = SITE.filter(f => f.at > TODAY - 6 * DAY).length;
+  add("", T(""), [N(site7), T(` new site feedback message${site7 === 1 ? "" : "s"} this week`)], () => setV("site"));
+  const vc = FLAGGED.filter(f => inRange(f.at, range()) && (state.ch === "all" || f.ch === state.ch)).length + SITE.filter(f => inRange(f.at, range())).length;
+  add("jump", T(""), [T("Read what students said "), N(`(${vc})`)], null, "a");
+}
+
+function perDay(r, fn) { return days(r).map(d => fn(Q.filter(q => q.day === d && (state.ch === "all" || q.ch === state.ch)))); }
+function perWeek(r, fn) { const ws = weeks(r), [a, b] = r; return ws.map(w => fn(Q.filter(q => q.day >= Math.max(w, a) && q.day < Math.min(w + 7 * DAY, b) && (state.ch === "all" || q.ch === state.ch)))); }
+
+function renderPanel(r, m) {
+  const p = document.getElementById("panel"), olive = css("--olive"), grey = css("--grey-series");
+  const ds = days(r), ws = weeks(r), wl = (w) => "Week of " + dlabel(w);
+  const parts = [];
+  if (state.tab === "usage") {
+    const qd = perDay(r, x => x.filter(q => q.outcome === "answered").length);
+    parts.push(card("u1", "Questions per day", "Answered questions", (W) => lineChart({ W, xs: ds, series: [{ name: "Questions", values: qd, color: olive }] }), { cols: ["Day", "Questions"], rows: ds.map((d, i) => [dlabel(d), fmt.format(qd[i])]) }));
+    const hc = heatCounts(m.qs);
+    parts.push(card("u2", "Chapter × message type", "Answered questions; see the key below", (W) => heatmap(m.qs, W), { cols: ["Chapter", ...TYPES.map(t => t[1])], rows: hc.rows.map(([, n], i) => [n, ...hc.counts[i].map(fmt.format)]) }));
+    const ss = sessions(m.ans), sw = ws.map(w => ss.filter(x => x.week === w));
+    const sCount = sw.map(x => x.length);
+    const mq = median(ss.map(x => x.n));
+    parts.push(card("u3", "Sessions per week", `Median ${median(ss.map(x => x.mins))} min · ${mq} question${mq === 1 ? "" : "s"} per session`, (W) => barChart({ W, items: ws.map((w, i) => [dlabel(w), sCount[i]]), horizontal: false }), { cols: ["Week", "Sessions", "Median minutes", "Median questions"], rows: ws.map((w, i) => [wl(w) + (i === 0 || i === ws.length - 1 ? " (part)" : ""), fmt.format(sCount[i]), String(median(sw[i].map(x => x.mins))), String(median(sw[i].map(x => x.n)))]) }));
+    const per = CHAPTERS.map(([c, n]) => [n, new Set(m.ans.filter(q => q.ch === c).map(q => q.student)).size]).filter(x => state.ch === "all" || x[0] === chName[state.ch]);
+    parts.push(card("u4", "Students per chapter", "Asked at least one question", (W) => barChart({ W, items: per }), { cols: ["Chapter", "Students"], rows: per.map(([n, v]) => [n, fmt.format(v)]) }));
+  }
+  if (state.tab === "quality") {
+    const hw = perWeek(r, x => { const rt = x.filter(q => q.rating); return { n: rt.length, v: rt.length >= 5 ? rt.filter(q => q.rating.helped).length / rt.length : null }; });
+    parts.push(card("q1", "Helped rate by week", "Weeks with fewer than 5 ratings show no value", (W) => lineChart({ W, xs: ws, xFmt: dlabel, series: [{ name: "Helped", values: hw.map(x => x.v), nOf: hw.map(x => x.n), color: olive }], yFmt: (v) => Math.round(v * 100) + "%", yMax: 1 }), { cols: ["Week", "Ratings", "Helped"], rows: ws.map((w, i) => [wl(w), fmt.format(hw[i].n), hw[i].v == null ? "–" : pct(hw[i].v)]) }));
+    const nh = m.rated.filter(q => !q.rating.helped);
+    const reasons = REASONS.map(([k, n]) => [n, nh.filter(q => q.rating.reason === k).length]).sort((a, b) => b[1] - a[1]);
+    const re = nh.filter(q => q.rating.reanswered).length;
+    parts.push(card("q2", "Why answers didn't help", `${fmt.format(nh.length)} not-helped ratings · ${fmt.format(re)} re-answered`, (W) => barChart({ W, items: reasons }), { cols: ["Reason", "Ratings"], rows: reasons.map(([n, v]) => [n, fmt.format(v)]) }));
+    const nw = perWeek(r, x => { const a = x.filter(q => q.outcome === "answered"); return { n: a.length, v: a.length >= 5 ? a.filter(q => q.notice).length / a.length : null }; });
+    parts.push(card("q3", "Answers with a removed part", "Share showing the drop notice, by week; under 5 answers shows no value", (W) => lineChart({ W, xs: ws, series: [{ name: "Drop notice", values: nw.map(x => x.v), nOf: nw.map(x => x.n), color: olive }], yFmt: (v) => Math.round(v * 100) + "%", yMax: 1 }), { cols: ["Week", "Answers", "Share"], rows: ws.map((w, i) => [wl(w), fmt.format(nw[i].n), nw[i].v == null ? "–" : pct(nw[i].v)]) }));
+    const reps = REPORTS.map(([k, n]) => [n, m.ans.filter(q => q.report === k).length]).sort((a, b) => b[1] - a[1]);
+    parts.push(card("q4", "Reports by reason", `${fmt.format(reps.reduce((a, x) => a + x[1], 0))} reports`, (W) => barChart({ W, items: reps }), { cols: ["Reason", "Reports"], rows: reps.map(([n, v]) => [n, fmt.format(v)]) }));
+    const gaps = [...m.ans.filter(q => q.gap).reduce((mp, q) => mp.set(q.gap, (mp.get(q.gap) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]).slice(0, 20);
+    const gmax = Math.max(1, ...gaps.map(g => g[1]));
+    const gt = () => { if (!gaps.length) return el("div", { class: "empty", text: "No uncovered topics in this range." }); const t = el("table", { class: "data" }); t.append(el("thead", {}, el("tr", {}, [el("th", { text: "Topic WatBot couldn't find in the course" }), el("th", { class: "r", text: "Times asked" })]))); t.append(el("tbody", {}, gaps.map(([g, n]) => { const b = el("span", { class: "gapbar" }); b.style.width = Math.round(80 * n / gmax) + "px"; return el("tr", {}, [el("td", { text: g }), el("td", { class: "r" }, [b, document.createTextNode(fmt.format(n))])]); }))); return t; };
+    parts.push(card("q5", "Coverage gaps", "Logged when a question falls outside the course materials", gt, null, true));
+  }
+  if (state.tab === "cost") {
+    const sd = perDay(r, x => x.reduce((a, q) => a + q.cost, 0));
+    parts.push(card("c1", "Spend per day", "Model cost of answered questions", (W) => barChart({ W, items: ds.map((d, i) => [dlabel(d), sd[i]]), horizontal: false, vFmt: (v) => usd(v) }), { cols: ["Day", "Spend"], rows: ds.map((d, i) => [dlabel(d), usd(sd[i])]) }));
+    const mtd = monthToDate(), share = mtd / CAP;
+    parts.push(card("c2", "November so far", "Month to date against the monthly cap (all chapters)", () => {
+      const w = el("div");
+      w.append(el("div", { class: "tile", style: "border:0;padding:0" }, [el("div", { class: "val num", text: `${usd(mtd)} of ${usd(CAP, 0)}` })]));
+      const mt = el("div", { class: "meter" + (share >= 0.8 ? " warn" : ""), role: "meter", "aria-valuemin": "0", "aria-valuemax": String(CAP), "aria-valuenow": mtd.toFixed(2), "aria-label": "Spend against cap" }); const sp = el("span"); sp.style.width = Math.min(100, share * 100) + "%"; mt.append(sp); w.append(mt);
+      w.append(el("div", { class: "sub", style: "font-size:13px;color:var(--fg-2)", text: share >= 0.8 ? `Over 80% of the cap with 4 days left (${pct(share)}).` : `${pct(share)} of the cap used.` }));
+      return w;
+    }));
+    const cw = perWeek(r, x => { const a = x.filter(q => q.outcome === "answered"); return a.length ? a.reduce((s, q) => s + q.cost, 0) / a.length : null; });
+    parts.push(card("c3", "Cost per question by week", null, (W) => lineChart({ W, xs: ws, series: [{ name: "Cost per question", values: cw, color: olive }], yFmt: (v) => usd(v, 3) }), { cols: ["Week", "Cost per question"], rows: ws.map((w, i) => [wl(w), cw[i] == null ? "–" : usd(cw[i], 3)]) }));
+    const tok = ["input", "output", "cacheRead", "cacheWrite"].map(k => m.ans.reduce((a, q) => a + q[k], 0));
+    const cacheShare = tok[2] / Math.max(1, tok[0]);
+    parts.push(card("c4", "Tokens", `Cache reads cover ${pct(cacheShare)} of input`, () => tableEl({ cols: ["Kind", "Tokens"], rows: [["Input", fmt.format(tok[0])], ["Output", fmt.format(tok[1])], ["Cache read", fmt.format(tok[2])], ["Cache write", fmt.format(tok[3])], ["Limit reached (questions)", fmt.format(m.qs.filter(q => q.outcome === "limit").length)]] })));
+  }
+  if (state.tab === "reliability") {
+    const lw = perDay(r, x => { const a = x.filter(q => q.outcome === "answered").map(q => q.lat); return a.length ? [median(a) / 1000, p95(a) / 1000] : [null, null]; });
+    parts.push(card("r1", "Time to answer", "Slowest 5% and median, seconds", (W) => lineChart({ W, h: 220, xs: ds, series: [{ name: "Slowest 5%", values: lw.map(x => x[1]), color: olive, endLabel: true }, { name: "Median", values: lw.map(x => x[0]), color: grey, endLabel: true }], yFmt: (v) => v.toFixed(1) + " s" }), { cols: ["Day", "Median", "Slowest 5%"], rows: ds.map((d, i) => [dlabel(d), lw[i][0] == null ? "–" : lw[i][0].toFixed(1) + " s", lw[i][1] == null ? "–" : lw[i][1].toFixed(1) + " s"]) }, true));
+    const nd = perDay(r, x => ({ n: x.length, v: x.length >= 5 ? x.filter(q => q.outcome !== "answered").length / x.length : null }));
+    const ndMax = niceMax(Math.max(0.05, ...nd.map(x => x.v ?? 0)));
+    parts.push(card("r2", "Questions not answered", "Share per day; under 5 questions shows no value", (W) => lineChart({ W, xs: ds, yMax: ndMax, ref: { v: FAIL_LIMIT, label: "Attention at 4%" }, series: [{ name: "Not answered", values: nd.map(x => x.v), nOf: nd.map(x => x.n), color: olive }], yFmt: (v) => (v * 100).toFixed(ndMax < 0.1 ? 1 : 0) + "%" }), { cols: ["Day", "Questions", "Not answered"], rows: ds.map((d, i) => [dlabel(d), fmt.format(nd[i].n), nd[i].v == null ? "–" : pct(nd[i].v)]) }));
+    const cnt = (f) => m.qs.filter(f).length, A = (q) => q.outcome === "answered";
+    const oc = [["Answered", cnt(A)], ["Cancelled by the student", cnt(q => q.outcome === "cancelled")], ["Unavailable (provider failed)", cnt(q => q.outcome === "unavailable")], ["Limit reached", cnt(q => q.outcome === "limit")], ["Total asked", m.qs.length],
+      ["Of answered: refused by the model", cnt(q => A(q) && q.refused)], ["Of answered: stopped mid-answer", cnt(q => A(q) && q.stopped)], ["Of answered: usage estimated", cnt(q => A(q) && q.estimated)]];
+    parts.push(card("r3", "Outcomes", `${fmt.format(m.qs.length)} questions asked; the first four rows add up to it`, () => tableEl({ cols: ["Outcome", "Questions"], rows: oc.map(([n, v]) => [n, fmt.format(v)]) })));
+  }
+  p.replaceChildren(...parts);
+  pending.splice(0).forEach(f => f());
+}
+
+/* ---------- voice column ---------- */
+function renderVoice(r) {
+  const q = state.vq.trim().toLowerCase();
+  const fl = FLAGGED.filter(f => inRange(f.at, r) && (state.ch === "all" || f.ch === state.ch));
+  const st = SITE.filter(f => inRange(f.at, r));
+  const match = (txt) => !q || txt.toLowerCase().includes(q);
+  const flM = fl.filter(f => match([f.q, f.a, f.note, f.re].join(" "))), stM = st.filter(f => match(f.body));
+  document.getElementById("c-all").textContent = flM.length + stM.length;
+  document.getElementById("c-flagged").textContent = flM.length;
+  document.getElementById("c-site").textContent = stM.length;
+  const [a, b] = r;
+  document.getElementById("vscope").textContent = `${dlabel(a)} – ${dlabel(b - DAY)} · ${state.ch === "all" ? "all chapters" : chName[state.ch]} · same filters as the charts`;
+  const vnote = document.getElementById("vnote"); vnote.replaceChildren();
+  if (state.ch !== "all" && state.vtab !== "flagged") vnote.append(el("div", { class: "vnote", text: "Site feedback has no chapter, so it shows for every chapter." }));
+  const items = [];
+  if (state.vtab !== "site") flM.forEach(f => items.push({ at: f.at, node: flaggedItem(f) }));
+  if (state.vtab !== "flagged") stM.forEach(f => items.push({ at: f.at, node: siteItem(f) }));
+  items.sort((x, y) => y.at - x.at);
+  const list = document.getElementById("vlist");
+  list.replaceChildren(...(items.length ? items.map(i => i.node) : [el("div", { class: "empty", text: q ? "Nothing matches that search in this range." : "Nothing written in this range." })]));
+}
+function flaggedItem(f) {
+  const d = el("details", { class: "item" });
+  const tag = f.kind === "report" ? el("span", { class: "tag rep", text: "Reported · " + pName[f.reason] }) : el("span", { class: "tag", text: "Not helped · " + rName[f.reason] });
+  d.append(el("summary", {}, [el("div", { class: "tagrow" }, [tag, el("span", { text: `${chName[f.ch]} · ${tName[f.type]} · ${dlabel(f.at)}` })]), el("p", { class: "quote", text: "“" + f.q + "”" }), el("p", { class: "reply", text: "WatBot: " + f.a })]));
+  const ex = el("div", { class: "exch" });
+  const ans = el("p", {}, [document.createTextNode(f.a + " ")]); f.cites.forEach(c => ans.append(el("span", { class: "cite", text: c }), document.createTextNode(" ")));
+  ex.append(el("div", { class: "turn" }, [el("div", { class: "who", text: "WatBot answered" }), ans]));
+  if (f.note) ex.append(el("div", { class: "turn" }, [el("div", { class: "who", text: f.kind === "report" ? "Student's report" : "Student's note" }), el("p", { text: "“" + f.note + "”" })]));
+  if (f.re) ex.append(el("div", { class: "turn" }, [el("div", { class: "who", text: "Re-answer" }), el("p", { text: f.re })]));
+  d.append(ex); return d;
+}
+function siteItem(f) {
+  const d = el("div", { class: "item" }); const inner = el("div", { style: "padding:11px 13px" });
+  inner.append(el("div", { class: "tagrow" }, [el("span", { class: "tag site", text: "Site feedback" }), el("span", { text: dlabel(f.at) + " · anonymous" })]));
+  const p = el("p", { class: "quote", text: "“" + f.body + "”" }); inner.append(p);
+  if (f.body.length > 160) { p.classList.add("clamp"); const b = el("button", { class: "more", text: "Show more", "aria-expanded": "false" }); b.onclick = () => { const open = p.classList.toggle("clamp"); b.textContent = open ? "Show more" : "Show less"; b.setAttribute("aria-expanded", String(!open)); }; inner.append(b); }
+  d.append(inner); return d;
+}
+
+/* ---------- wiring ---------- */
+function render() {
+  hideTip();
+  const r = range(), m = metrics(r), pm = metrics(prior(r));
+  renderAttention(m); renderTiles(m, pm); renderPanel(r, m); renderVoice(r);
+}
+function setTab(t) { state.tab = t; document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === t))); renderPanel(range(), metrics(range())); }
+function setV(v) { state.vtab = v; document.querySelectorAll("#vtabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.v === v))); renderVoice(range()); }
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.querySelectorAll("#vtabs button").forEach(b => b.onclick = () => setV(b.dataset.v));
+const iso = (t) => new Date(t).toISOString().slice(0, 10);
+const fromI = document.getElementById("from"), toI = document.getElementById("to");
+fromI.min = toI.min = iso(TODAY - 179 * DAY); fromI.max = toI.max = iso(TODAY);
+document.querySelectorAll("#rangeSeg button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#rangeSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  const v = b.dataset.days; state.days = v === "custom" ? "custom" : +v;
+  document.getElementById("custom").classList.toggle("on", v === "custom");
+  if (v === "custom" && !state.from) { state.from = TODAY - 13 * DAY; state.to = TODAY; fromI.value = iso(state.from); toI.value = iso(state.to); }
+  render();
+});
+const onDates = () => { const a = Date.parse(fromI.value), b = Date.parse(toI.value); if (!isNaN(a) && !isNaN(b) && a <= b) { state.from = a; state.to = b; render(); } };
+fromI.onchange = onDates; toI.onchange = onDates;
+const sel = document.getElementById("chapter"); CHAPTERS.forEach(([v, n]) => sel.append(el("option", { value: v, text: n })));
+sel.onchange = () => { state.ch = sel.value; render(); };
+document.getElementById("vq").oninput = (e) => { state.vq = e.target.value; renderVoice(range()); };
+const themeBtn = document.getElementById("themeBtn");
+themeBtn.onclick = () => { const d = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = d; themeBtn.textContent = d === "dark" ? "Light mode" : "Dark mode"; themeBtn.setAttribute("aria-pressed", String(d === "dark")); render(); };
+window.addEventListener("scroll", hideTip, { passive: true });
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => renderPanel(range(), metrics(range())), 150); });
+render();
+})();
+</script>
+</body>
+</html>
