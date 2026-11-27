@@ -1,6 +1,6 @@
 # Admin dashboard (WatBot and site feedback) — design
 
-Date: 2026-11-27 · Status: approved with changes 2026-11-27 (D8 US Central); adversarial review folded (F1–F5); privacy decision (F3-privacy) pending · Branch: `admin-dash-spec` (off `main` `8961e76f`)
+Date: 2026-11-27 · Status: approved with changes 2026-11-27 (D8 US Central); adversarial review folded (F1–F5); privacy decision (a), keep as designed · Branch: `admin-dash-spec` (off `main` `8961e76f`)
 
 Spec 1 of 2. Spec 2 (later, separate) adds classes, rosters, instructor accounts and the Privacy Notice change that would let an instructor see their own students. This spec builds the owner-only dashboard so Spec 2 can add an instructor scope without reworking it.
 
@@ -229,7 +229,4 @@ Rules carried from the review:
 
 Resolved 2026-11-27: D8 is US Central; `PRODUCT.md` stays in the repo.
 
-**Open, owner decision (adversarial review, privacy finding):** §4.2 and the voice column show students' own words: questions, notes, reports and site feedback. Removing ids does not stop re-identification, because wording, scenario details and timing can point to a student. The Privacy Notice covers "find and fix errors" and "understand, in aggregate", but it does not say the operator reads individual WatBot submissions. It also says course records may be governed by the student's institution. Choose before the plan:
-- (a) keep D4 as is, and treat owner reading as covered by "find and fix errors";
-- (b) keep D4, and add one Notice sentence that the operator may read individual WatBot questions, answers and ratings to find and fix problems. A terms-version bump would sign every user out once, as WQF Part B did; a wording clarification without a bump would not;
-- (c) ship aggregates only now, and move the words to Spec 2 together with its Notice change.
+**Privacy finding, resolved by the owner (2026-11-27): (a), keep D4 as designed.** The owner's reading of flagged answers and site feedback counts as "find and fix errors" under the current Privacy Notice. No Notice change and no terms-version bump. The review's concern is recorded here: wording, scenario details and timing can re-identify a student. The mitigations stand: no ids, the owner as the only viewer (D1), and counts never lists. Instructor access (Spec 2) needs its own Notice change.
