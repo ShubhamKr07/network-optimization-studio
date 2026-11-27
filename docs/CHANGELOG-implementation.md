@@ -5870,7 +5870,7 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 
 ### HCV feedback panel contrast (review notes of 952e6536)
 
-- Feedback error text `text-destructive` → `text-[color:var(--danger)]` (the app's themed red text token, already used for "failed" in Recent solves). Dark was 3.69:1 measured; the shared `--destructive` is left as is (DU-5 Q3 kept white-on-red as a known exception, a user decision).
+- Feedback error text `text-destructive` → `text-danger` (the app's themed red text utility over `--danger`, used by the WatBot, ImportDialog and SidebarTree errors; 6.36:1 light, 6.40:1 dark on the panel). Dark was 3.69:1 measured; the shared `--destructive` is left as is (DU-5 Q3 kept white-on-red as a known exception, a user decision).
 - Textarea placeholder now `placeholder:text-muted-foreground` (was Tailwind v4's 50% currentColor, 3.36:1 computed in light).
 - `homeContrast.ts`: the inactive-control skip narrowed from any `[aria-disabled='true']` to `button:disabled` and `button`/`a`/`[role=button]` with `aria-disabled`, so a future locked card or row cannot be silently exempted.
 - e2e: error text after a stubbed failed send measured in light and dark; placeholder colour must equal the measured muted-foreground hint. On the old code the dark error case fails at 3.69:1 and both placeholder cases fail; light error passed before (4.71:1) and is a guard.
