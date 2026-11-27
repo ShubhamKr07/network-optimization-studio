@@ -9,10 +9,12 @@
 export type GetAdminFeedbackParams = {
 /**
  * First day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
-from: Date;
+from: string;
 /**
  * Last day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
-to: Date;
+to: string;
 };

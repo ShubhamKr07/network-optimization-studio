@@ -2,7 +2,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import request from "supertest";
 import { eq, like } from "drizzle-orm";
-import { db, usersTable, feedbackTable } from "@workspace/db";
+import { db, usersTable, feedbackTable, watbotConversationsTable, watbotMessagesTable } from "@workspace/db";
 import app from "../app.js";
 
 const MARKER = "adm-t2-test-";
@@ -108,5 +108,22 @@ describe("GET /api/admin/feedback", () => {
     const mine = res.body.items.filter((i: { body: string }) => i.body.startsWith(MARKER));
     expect(mine.map((i: { body: string }) => i.body)).toEqual([`${MARKER}b`, `${MARKER}a`]);
     for (const i of res.body.items) expect(Object.keys(i).sort()).toEqual(["body", "createdAt", "id"]);
+  });
+});
+
+describe("GET /api/admin/watbot/metrics calendar dates", () => {
+  it("serves days[].date and sessionsByWeek[].weekStart as YYYY-MM-DD strings (not coerced Dates)", async () => {
+    const cookie = await asAdmin();
+    const { id } = await register(); // a student: admins are excluded from the metrics allowlist
+    const [c] = await db.insert(watbotConversationsTable).values({ userId: id, modelId: "p-median-us", title: "adm-t2b" }).returning();
+    await db.insert(watbotMessagesTable).values({ conversationId: c!.id, userId: id, role: "student", status: "answered", blocks: [{ text: "x", citations: [] }], createdAt: new Date("2026-09-21T18:00:00Z") });
+    const from = "2026-09-20", to = "2026-09-22";
+    const res = await request(app).get(`/api/admin/watbot/metrics?from=${from}&to=${to}`).set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    const DATE = /^\d{4}-\d{2}-\d{2}$/;
+    expect(res.body.sessionsByWeek.length).toBeGreaterThan(0);
+    for (const d of res.body.days) expect(d.date).toMatch(DATE);
+    for (const w of res.body.sessionsByWeek) expect(w.weekStart).toMatch(DATE);
+    expect(res.body.days[0].date).toBe(from);
   });
 });

@@ -1297,15 +1297,23 @@ export const SubmitFeedbackBody = zod.object({
  * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
  * @summary WatBot usage metrics
  */
+export const getAdminWatBotMetricsQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getAdminWatBotMetricsQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetAdminWatBotMetricsQueryParams = zod.object({
-  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
-  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).'),
+  "from": zod.coerce.string().regex(getAdminWatBotMetricsQueryFromRegExp).describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.coerce.string().regex(getAdminWatBotMetricsQueryToRegExp).describe('Last day, YYYY-MM-DD (Chicago).'),
   "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
 })
 
+export const getAdminWatBotMetricsResponseDaysItemDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getAdminWatBotMetricsResponseSessionsByWeekItemWeekStartRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetAdminWatBotMetricsResponse = zod.object({
   "days": zod.array(zod.object({
-  "date": zod.coerce.date(),
+  "date": zod.string().regex(getAdminWatBotMetricsResponseDaysItemDateRegExp),
   "asked": zod.number(),
   "answered": zod.number(),
   "cancelled": zod.number(),
@@ -1396,7 +1404,7 @@ export const GetAdminWatBotMetricsResponse = zod.object({
 }))
 }),
   "sessionsByWeek": zod.array(zod.object({
-  "weekStart": zod.coerce.date(),
+  "weekStart": zod.string().regex(getAdminWatBotMetricsResponseSessionsByWeekItemWeekStartRegExp),
   "sessions": zod.number(),
   "medianMinutes": zod.number(),
   "medianQuestions": zod.number()
@@ -1413,9 +1421,13 @@ export const GetAdminWatBotMetricsResponse = zod.object({
  * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
  * @summary Flagged WatBot answers
  */
+export const getAdminWatBotFlaggedQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getAdminWatBotFlaggedQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetAdminWatBotFlaggedQueryParams = zod.object({
-  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
-  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).'),
+  "from": zod.coerce.string().regex(getAdminWatBotFlaggedQueryFromRegExp).describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.coerce.string().regex(getAdminWatBotFlaggedQueryToRegExp).describe('Last day, YYYY-MM-DD (Chicago).'),
   "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
 })
 
@@ -1450,9 +1462,13 @@ export const GetAdminWatBotFlaggedResponse = zod.object({
  * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
  * @summary Anonymous site feedback
  */
+export const getAdminFeedbackQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getAdminFeedbackQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetAdminFeedbackQueryParams = zod.object({
-  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
-  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).')
+  "from": zod.coerce.string().regex(getAdminFeedbackQueryFromRegExp).describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.coerce.string().regex(getAdminFeedbackQueryToRegExp).describe('Last day, YYYY-MM-DD (Chicago).')
 })
 
 export const GetAdminFeedbackResponse = zod.object({

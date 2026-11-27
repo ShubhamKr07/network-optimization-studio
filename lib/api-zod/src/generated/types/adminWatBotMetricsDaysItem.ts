@@ -7,7 +7,8 @@
  */
 
 export type AdminWatBotMetricsDaysItem = {
-  date: Date;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  date: string;
   asked: number;
   answered: number;
   cancelled: number;

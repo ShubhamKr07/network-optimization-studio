@@ -275,6 +275,7 @@ export const LogoutSuccessValue = {
 export type LogoutSuccess = typeof LogoutSuccessValue;
 
 export type AdminWatBotMetricsDaysItem = {
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   date: string;
   asked: number;
   answered: number;
@@ -300,6 +301,7 @@ export type AdminWatBotMetricsMatrixItem = {
 };
 
 export type AdminWatBotMetricsSessionsByWeekItem = {
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   weekStart: string;
   sessions: number;
   medianMinutes: number;
@@ -2044,10 +2046,12 @@ export type UpdateInboundDistanceBandsBody = {
 export type GetAdminWatBotMetricsParams = {
 /**
  * First day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 from: string;
 /**
  * Last day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 to: string;
 /**
@@ -2059,10 +2063,12 @@ modelId?: string;
 export type GetAdminWatBotFlaggedParams = {
 /**
  * First day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 from: string;
 /**
  * Last day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 to: string;
 /**
@@ -2074,10 +2080,12 @@ modelId?: string;
 export type GetAdminFeedbackParams = {
 /**
  * First day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 from: string;
 /**
  * Last day, YYYY-MM-DD (Chicago).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
  */
 to: string;
 };

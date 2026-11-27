@@ -7,7 +7,8 @@
  */
 
 export type AdminWatBotMetricsSessionsByWeekItem = {
-  weekStart: Date;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  weekStart: string;
   sessions: number;
   medianMinutes: number;
   medianQuestions: number;
