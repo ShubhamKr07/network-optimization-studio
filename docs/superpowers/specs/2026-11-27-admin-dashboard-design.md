@@ -1,6 +1,6 @@
 # Admin dashboard (WatBot and site feedback) — design
 
-Date: 2026-11-27 · Status: approved with changes 2026-11-27 (D8 US Central), pending adversarial review · Branch: `admin-dash-spec` (off `main` `8961e76f`)
+Date: 2026-11-27 · Status: approved with changes 2026-11-27 (D8 US Central); adversarial review folded (F1–F5); privacy decision (F3-privacy) pending · Branch: `admin-dash-spec` (off `main` `8961e76f`)
 
 Spec 1 of 2. Spec 2 (later, separate) adds classes, rosters, instructor accounts and the Privacy Notice change that would let an instructor see their own students. This spec builds the owner-only dashboard so Spec 2 can add an instructor scope without reworking it.
 
@@ -29,13 +29,18 @@ Out of scope: instructor access, classes and rosters, any Privacy Notice change 
 | D6 | Layout: numbers and voices side by side (§6). |
 | D7 | Charts: no categorical colour. Single olive series, the validated olive band ramp for magnitude, grey for context lines, amber only for the spending cap (with icon and words). One axis per chart. Every chart has a Table view. Rates show their n and "–" below n = 5. |
 | D8 | **Day boundary: US Central (`America/Chicago`)**, owner 2026-11-27. Days, weeks and date filters use Chicago midnight, so a day is 23 or 25 hours across daylight-saving changes. The one exception is the spending cap: it is enforced per **UTC** month (`watbot/limits.ts:2`), so its meter shows the UTC month and says so. |
-| D9 | Admin accounts' own WatBot messages are left out of every WatBot number. Site feedback cannot be filtered this way (it is anonymous). |
+| D9 | WatBot numbers count only users whose role is `student` or `instructor`, an allowlist rather than `<> 'admin'`. So admins, and any malformed role value, are left out. Site feedback cannot be filtered this way (it is anonymous). |
 
 ## 3. Access gate (security-critical)
 
 ### 3.1 Role
-- `users.role` is an existing `varchar NOT NULL DEFAULT 'student'` with no check constraint (`lib/db/src/schema/auth.ts:33`). The new value `admin` needs **no schema change**.
+- `users.role` is an existing `varchar NOT NULL DEFAULT 'student'` with no check constraint (`lib/db/src/schema/auth.ts:33`). The new value `admin` needs no column change; the review's role invariant adds a `CHECK` constraint (below, and §9).
 - OpenAPI `AuthUser.role` enum becomes `[student, instructor, admin]` (`lib/api-spec/openapi.yaml:1595`). Orval output is regenerated in the same commit (hard rule #1). `toAuthUser` in `routes/auth.ts:115` widens its cast to match.
+- **Role invariant (adversarial review, F3):**
+  - A shared `parseRole(raw)` in `lib/roles.ts` replaces the bare cast in `toAuthUser`. An unknown value maps to `student` in responses and logs one warn with no user id or email, so a bad value can never 500 a log-in.
+  - The admin gate accepts only the exact string `admin`.
+  - The database gets `CHECK (role IN ('student','instructor','admin'))`. That is an additive schema change; §9 audits the existing values before it is pushed.
+  - Tests cover a malformed value, a case variant (`Admin`) and an empty string.
 - **Rollout trap:** register, log-in, `GET /auth/user` and password-reset responses go through the generated Zod schemas (`routes/auth.ts:175,245,276,512`). An account set to `admin` **before** the new enum is deployed would get a 500 on every log-in. So the production `UPDATE` (§9) runs only after the API carrying the new contract is live.
 
 ### 3.2 `requireAdmin`
@@ -59,7 +64,7 @@ All three are `GET`, admin-only, and read-only.
 - `from` and `to` are calendar dates in `America/Chicago` (D8), inclusive. The server turns them into instants with `AT TIME ZONE 'America/Chicago'` and buckets every row by `(created_at AT TIME ZONE 'America/Chicago')::date`. The span is at most 90 days, `from <= to`, and neither may be in the future. Anything else is a 422 with a plain sentence.
 - `modelId` is optional and must be a known model id; an unknown id is a 422.
 
-**WatBot rows** are restricted to users whose `role` is not `admin` (D9), via a join to `users`.
+**WatBot rows** are restricted to users whose `role` is `student` or `instructor` (D9), via a join to `users`. This applies to every query, sessions included.
 
 ### 4.1 `GET /api/admin/watbot/metrics`
 Returns counts, not rates, so the studio can bucket by week without losing n. Each block is for the period; `prior` is the same-length period immediately before it, for the tile deltas.
@@ -68,8 +73,10 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
   - `date`;
   - `asked`, plus `answered`, `cancelled`, `unavailable` and `limitReached` (`watbot_messages` role `student`, by `status`);
   - `ratings` and `helped` (`watbot_feedback`);
-  - `notices` (tutor replies that were followed by the drop notice);
-  - `refused`, `stopped` and `failedNotices` (notice rows, by their text constants in `engine.ts`/`routes/watbot.ts`);
+  - `notices`: tutor replies that carried the drop notice;
+  - `refused` and `stopped`: tutor replies with those notices;
+  - `failedNotices`: failed-notice rows, counted on their own, because a failed answer may have no tutor row;
+  - **How a notice is tied to a reply (F5):** notice rows have no foreign key. They are written right after their tutor row in the same request (`routes/watbot.ts:347-354`). So a drop, refused or stopped notice belongs to the nearest tutor row in the same conversation with a lower `id`, and with no student row between them. A notice with no such tutor row is not counted. Notices are matched by the exported text constants (`CLAIM_REMOVED_NOTICE` and the others), never by retyped strings.
   - `costUsd` (sum of tutor `usage.costUsd`);
   - `latencyMedianMs` and `latencyP95Ms` (`percentile_cont` over tutor `latency_ms`; null when there is no reply);
   - `estimated` (tutor `usage.estimated = true`).
@@ -78,12 +85,12 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
   - `answered`;
   - `activeStudents` (distinct users);
   - `studentsByModel[]`;
-  - `sessions`, `sessionMedianMinutes` and `sessionMedianQuestions` (from the `watbot_sessions` view, by `started_at` in range);
+  - `sessions`, `sessionMedianMinutes` and `sessionMedianQuestions`. **Not read from the `watbot_sessions` view (F2):** the view has no role column and runs its window functions over all history. The admin query applies the view's rule (a gap of more than 30 minutes starts a new session, per user and model) inline. It uses only answered student messages from allowlisted users in range. A session that crosses the range edge is cut at the edge, and the subtitle says so;
   - `ratings`, `helped`, `notHelpedByReason[]` and `reanswered` (`repair_message_id` not null);
   - `reportsByReason[]` (`watbot_reports.reason`);
   - `costUsd`;
   - `tokens{ input, output, cacheRead, cacheWrite }`;
-  - `gapTopics[]`, the top 20 `{ topic, count }` from tutor `gap_topic`.
+  - `gapTopics[]`, the top 20 `{ topic, count, nearestCovered }`. **Parsing (F5):** `gap_topic` is stored as one string, `"<topic> (nearest covered: <nearest>)"` (`engine.ts:242`). The query splits it with that exact pattern and groups by the topic, trimmed and case-folded. `nearestCovered` is the most frequent nearest label in that group. A value that doesn't match the pattern is grouped whole.
 - `monthToDate{ spendUsd, capUsd }` reuses `monthlySpendUsd` and `monthlyCapUsd` (`watbot/limits.ts`). It always covers the current **UTC** month, as the cap is enforced, and all models, whatever the filters. The meter's label names the UTC month. It is the one number not filtered by D9, because the cap is enforced on all spend.
 
 ### 4.2 `GET /api/admin/watbot/flagged`
@@ -94,14 +101,26 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
   - `answer`: the reply's block texts with citation labels only (`label`, not `citedText`);
   - `rating`: `{ reason, note }` or null;
   - `report`: `{ reason, note }` or null;
-  - `reanswer`: the text of the reply that `repair_message_id` points to, or null.
+  - `reanswer`: `{ status, text }`. **`repair_message_id` points to the re-answer's student message, not to the reply (F1)** (`routes/watbot.ts:302`). The reply is the first tutor row after it in the same conversation, the same rule as `claimIsLive` (`routes/watbot.ts:81-90`).
+    - `status` is `answered` (the reply exists), `not_completed` (the claim exists but no tutor row followed, because it failed or stopped) or `none` (no re-answer).
+    - `text` is null unless `answered`.
 - **Never included:** user ids, conversation ids, message ids or emails. A test asserts the exact key set, and that a seeded email appears nowhere in the body.
 
 ### 4.3 `GET /api/admin/feedback`
 - Site feedback in range (no `modelId`), newest first, at most 500, plus `truncated`.
 - Each item is `{ id, body, createdAt }` and nothing else. The table has no account column by design (COSM-4), and none is added.
 
-### 4.4 Spec 2 hook
+### 4.4 Indexes and query cost (F2)
+- **New additive indexes**, pushed before the API deploy (§9):
+  - `watbot_messages (role, created_at)`, for range scans across all users. Today's indexes are per conversation and per user.
+  - `watbot_feedback (created_at)`;
+  - `watbot_reports (created_at)`.
+- **Acceptance:**
+  - A test seeds 10× the production row counts, measured read-only during planning. Each endpoint must answer in under 1 s locally for a 90-day range.
+  - The plan records `EXPLAIN` output showing index use.
+  - If it misses, add a short server-side cache for the response, keyed by filters; don't add a materialised view.
+
+### 4.5 Spec 2 hook
 The WatBot queries take one internal "which students" condition, today "every non-admin user". Spec 2 adds an instructor scope ("students in my classes") at that single point. No other preparation is built now.
 
 ## 5. Metric presentation (dataviz-reviewed)
@@ -172,6 +191,12 @@ Rules carried from the review:
 - **Day boundary:** a row at 05:30 UTC on a winter day counts on the previous Chicago day, and a row on the DST-change day lands in that day's 23- or 25-hour bucket.
 - **Metrics:** seed rows with hand-computed expected values. At least one populated row per metric, a row outside the range, and an admin user's row that must be excluded. Never an empty set (repo gotcha on empty fixtures).
 - **Flagged:** the exact key set; a seeded email and user id appear nowhere in the JSON; the question is the preceding student message, not another conversation's.
+- **Re-answers:** answered, failed (claim with no tutor row) and stopped re-answers give `answered`, `not_completed` and `not_completed`.
+- **Notices:** two conversations with interleaved ids, a reply with two notices, a failed answer with no tutor row, and a notice with no tutor row. Each must count exactly as defined in §4.1.
+- **Sessions:** an admin's session and a malformed-role user's session are both excluded; a session crossing the range edge is cut.
+- **Gap topics:** the same topic with two different nearest labels groups as one; an unparseable value is kept whole.
+- **Roles:** `parseRole` handles a malformed value, a case variant and an empty string. Log-in still succeeds and the admin gate stays 404 for each.
+- **Performance:** the 10× seeded data set stays under 1 s per endpoint (§4.4).
 - **Site feedback:** the exact key set `{id, body, createdAt}`; the range is honoured.
 - **Validation:** span over 90 days, `from > to`, a future date and an unknown `modelId` → 422.
 - **Guard test (§3.3)** with its non-vacuity case.
@@ -192,11 +217,19 @@ Rules carried from the review:
 
 ## 9. Rollout
 
-1. Merge and deploy **nos-api** first (new contract and endpoints), then **nos-studio** (page and header link), each with its own approval. No schema change: `git diff --stat <deployed>..HEAD -- lib/db/src/schema/` must be empty.
-2. With **separate approval, and only after step 1 is live** (§3.1 trap): `render psql` runs `UPDATE users SET role = 'admin' WHERE lower(email) = lower('<owner email>')` in a transaction, checking one row changed. The email stays out of the repo; the runbook takes it as a parameter.
-3. Runbook `docs/ops/admin-role.md`: grant, revoke (`SET role = 'student'`), and the ordering trap.
-4. The owner opens `/admin` in production; verify by read-only query that no other account has `role = 'admin'`.
+1. **Schema first** (`docs/ops/schema-push-before-deploy.md`), with its own approval:
+   - Read-only audit: `SELECT role, count(*) FROM users GROUP BY role`. It must show only `student` or `instructor`. Anything else stops the rollout for an owner decision.
+   - Then push the three indexes and the role `CHECK`. Both are additive; the indexes are built `CONCURRENTLY` where `drizzle-kit` allows.
+2. Merge and deploy **nos-api** (new contract and endpoints), then **nos-studio** (page and header link), each with its own approval.
+3. With **separate approval, and only after step 2 is live** (§3.1 trap): `render psql` runs `UPDATE users SET role = 'admin' WHERE lower(email) = lower('<owner email>')` in a transaction, checking one row changed. The email stays out of the repo; the runbook takes it as a parameter.
+4. Runbook `docs/ops/admin-role.md`: grant, revoke (`SET role = 'student'`), and the ordering trap.
+5. The owner opens `/admin` in production; verify by read-only query that no other account has `role = 'admin'`.
 
 ## 10. Open items for this review
 
-Resolved 2026-11-27: D8 is US Central; `PRODUCT.md` stays in the repo. None remain open.
+Resolved 2026-11-27: D8 is US Central; `PRODUCT.md` stays in the repo.
+
+**Open, owner decision (adversarial review, privacy finding):** §4.2 and the voice column show students' own words: questions, notes, reports and site feedback. Removing ids does not stop re-identification, because wording, scenario details and timing can point to a student. The Privacy Notice covers "find and fix errors" and "understand, in aggregate", but it does not say the operator reads individual WatBot submissions. It also says course records may be governed by the student's institution. Choose before the plan:
+- (a) keep D4 as is, and treat owner reading as covered by "find and fix errors";
+- (b) keep D4, and add one Notice sentence that the operator may read individual WatBot questions, answers and ratings to find and fix problems. A terms-version bump would sign every user out once, as WQF Part B did; a wording clarification without a bump would not;
+- (c) ship aggregates only now, and move the words to Spec 2 together with its Notice change.
