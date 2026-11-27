@@ -5889,3 +5889,57 @@ Four nos-studio deploys, each pushed, preflighted and deployed on its own approv
 - Post-deploy, each time: `pnpm deploy:preflight -- --verify-studio https://app.networkdesignbook.com/compare` → 200 with `id="root"`; `/`, `/login`, `/chapter-3` → 200 (plus `/register`, `/forgot-password`, `/terms`, `/privacy` after #1); the live bundle was confirmed to carry the new code (`home-top`/`feedback-pill`/`cover-paper` after #1, `--home-card` after #2, the footer subtext and `text-foreground` panel after #3, `placeholder:text-muted-foreground` after #4). After #1 a production screenshot of `/login` matched the approved sign-in design (only the arcs' draw-in is new). The signed-in home page was not viewed in production (no production account was created for it); it was verified locally in light and dark at 1440/820/390.
 - No `pnpm smoke` run for any of the four (studio-only, no API change), so `deploys.csv` gets no rows.
 - Cleanup after the deploys: the 8 worktrees and 12 local branches of the CSI, Phase 6 plan, OMQ record and HCV work were removed; each branch had 0 commits outside `main` (`git cherry`) and was an ancestor of `main`, so plain `git branch -d` sufficed. None existed on `origin`.
+
+## ADM — admin dashboard, Spec 1 (2026-11-27)
+
+Owner-only `/admin` page: WatBot usage, quality, cost and reliability, plus flagged answers and anonymous site feedback, behind a new `admin` role. Spec `docs/superpowers/specs/2026-11-27-admin-dashboard-design.md` was approved with changes: US Central days, privacy (a), and the database change kept. Plan `docs/superpowers/plans/2026-11-27-admin-dashboard.md` had a Codex adversarial review on both spec and plan, with findings folded in. Visual reference: `docs/superpowers/specs/assets/2026-11-27-admin-dashboard-prototype.html`, which got Impeccable verdict ship. Executed in agent-team waves on bundle branch `adm`; each task had an Opus review (T6 a fable review) before cherry-pick.
+
+- **T1 `51cd08c5`:** `admin` in the `AuthUser.role` contract; `parseRole` in `toAuthUser`, so a bad value never 500s a log-in; DB `CK_users_role` CHECK. Contract tests are pinned to `ROLES`.
+- **T2 `20e8a574`:** contract for the three endpoints. `requireAdmin` answers 404 to every non-admin (signed out, stale terms, deleted, student, instructor, lookup error). The gated sub-router is mounted right after `authRouter`, because four later routers 401 path-lessly. Source and behavioural guard tests (every route × method as a student). Strict calendar dates; site-feedback endpoint with a 500 cap.
+- **T3 `53cddb6c`:** metrics service.
+  - Days are bucketed in `America/Chicago`; the cap stays a UTC month.
+  - Only `student`/`instructor` rows count.
+  - The drop notice is counted under both wordings (the pre-25-Nov text too).
+  - A notice is tied to the nearest earlier reply in the conversation with no question in between.
+  - Sessions are computed inline, not from the view (no role column, all-history windows).
+  - Gap topics are split on the stored pattern. Review fix: counts added across spellings; ties go to the earliest label.
+  - Four additive indexes.
+- **T4 `7b9ac850`:** flagged answers.
+  - `question` is null when there's no student row before the reply.
+  - The re-answer status follows `repair_message_id`, the student marker, to the next reply, the same rule as `claimIsLive`.
+  - Citations are labels only; no ids.
+  - Review fix: the re-answer and question lookups are bounded to the conversation by `created_at`, after an unfinished re-answer was found to scan the whole table. No new index.
+- **T4b `17709aa0`:** perf-seed hook timeouts raised to 30 min.
+- **T5 `da114777`:** studio page in the approved layout.
+  - recharts with `accessibilityLayer`; a CSS-grid heatmap on `--heat-*` tokens.
+  - A Table toggle on every chart, and "–" for rates with n < 5.
+  - The cache share is computed over all input, cache included.
+  - Review fixes: a crash on a cleared date, the theme-stale heatmap, axis contrast, and chips anchored to the range.
+- **T2b `cf78a93b`:** caught by e2e, not unit tests. Admin calendar dates were `format: date`, so the generated zod `coerce.date()` served `2026-10-29T00:00:00.000Z`, which crashed the page. They are now pattern strings.
+- **T6 `fe45a53b` + `b4239e0e`:** e2e, 5 cases. Fable-review fixes: the Chicago date (the UTC date was "future" after Chicago midnight), and a real overflow check. `documentElement.scrollWidth` can't exceed the viewport inside AppShell's scrolling `<main>`, so the old assertion was vacuous.
+- **T5b `73737969`:** QA-screenshot fixes.
+  - recharts drops axes wrapped in a Fragment: the bar labels were missing and "Students per chapter" was blank.
+  - Heatmap labels; week ticks; an inline details chevron; the email is sr-only below `sm`.
+- **T5c `0732bceb`:** the chapter select is width-capped. It was 8px past 390, caught by the now-real overflow test.
+- **T7 (this commit):** `docs/ops/admin-role.md`, the manual rollout. Read-only role audit; `CHECK … NOT VALID` then `VALIDATE`; indexes `CONCURRENTLY` with `lock_timeout`; catalog verification; a one-row-guarded `DO` grant only after nos-api is live. Plus flake-registry sightings.
+
+**Gates on `adm` @ `17709aa0`:**
+- **Unit gate:** typecheck clean; api-server 2551/2552 (the 1 is the registered `loginRateLimitProxy` load flake, 4/4 ×2 isolated); studio 3366/3366; pytest green.
+- **`e2e:gate`** at load 7 with no other runners: 280 passed, 0 unexpected, 1 flaky (`design-upgrade-p5` theme toggle, 2/2 isolated).
+- **`ADMIN_PERF=1`**, alone, 10× volume, 90 days, median of 3: metrics 938 ms (573 ms at lower load), flagged 30 ms, site feedback 5 ms. The flagged plan uses `IDX_watbot_reports_message`.
+
+**Not caused by ADM, flagged:** `e2e_accuracy.py` gives 97/99 on both `adm` and `origin/main` `8961e76f`; two single-source cases return `no_solution`, the CBC time-limit class.
+
+**Deviations from the plan:**
+- Serial T3 → T4, from the plan review.
+- The perf test moved from T3 to T4.
+- `heatBins` uses lower-quantile cuts, so uniform data shows lightest.
+- An extra "Nearest covered topic" column and a `truncated` note.
+- The 7-day chips are anchored to the range end.
+
+**Watch:** metrics latency is about 0.6–0.94 s at 10× today's production volume. Add a short response cache (spec §4.4) if real volume approaches that.
+
+**Follow-ups:**
+- Spec 2: classes, rosters, instructor scope, Privacy Notice change.
+- The `e2e_accuracy` single-source failures on `main`.
+- The rollout itself, which needs its own approvals: role audit → schema → nos-api → nos-studio → grant.
