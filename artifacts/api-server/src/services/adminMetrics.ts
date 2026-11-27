@@ -29,8 +29,7 @@ const base = (r: AdminRange) => sql`
   FROM watbot_messages m JOIN watbot_conversations c ON c.id = m.conversation_id JOIN users u ON u.id = m.user_id
   WHERE m.role IN ('student', 'tutor', 'notice') AND ${allow} AND ${inRange(sql`m.created_at`, r)} ${model(r)}`;
 
-async function dayRows(r: AdminRange) {
-  const days = rowsOf<Record<string, string | null>>(sql`
+export const daysQuery = (r: AdminRange) => sql`
     WITH d AS (SELECT generate_series(${r.from}::date, ${r.to}::date, interval '1 day')::date AS date), b AS (${base(r)})
     SELECT d.date::text AS date,
       count(*) FILTER (WHERE b.role = 'student') AS asked,
@@ -42,7 +41,10 @@ async function dayRows(r: AdminRange) {
       percentile_cont(0.5) WITHIN GROUP (ORDER BY b.latency_ms) FILTER (WHERE b.role = 'tutor') AS latency_median_ms,
       percentile_cont(0.95) WITHIN GROUP (ORDER BY b.latency_ms) FILTER (WHERE b.role = 'tutor') AS latency_p95_ms,
       count(*) FILTER (WHERE b.role = 'tutor' AND (b.usage->>'estimated')::boolean) AS estimated
-    FROM d LEFT JOIN b ON b.day = d.date GROUP BY d.date ORDER BY d.date`);
+    FROM d LEFT JOIN b ON b.day = d.date GROUP BY d.date ORDER BY d.date`;
+
+async function dayRows(r: AdminRange) {
+  const days = rowsOf<Record<string, string | null>>(daysQuery(r));
   // A notice belongs to the nearest earlier tutor row in its conversation with no student row between (spec §4.1).
   // FAILED_NOTICE may have no tutor row, so it is kept regardless and counted on its own.
   const notices = rowsOf<{ day: string; notices: string; refused: string; stopped: string; failed: string }>(sql`

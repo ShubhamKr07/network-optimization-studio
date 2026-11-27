@@ -31,7 +31,7 @@ it("admin.ts registers nothing on `router` except the one gated mount", () => {
 it("every route on the admin sub-router 404s a student", async () => {
   const stack = adminRoutesForTests.stack as { route?: { path: string; methods: Record<string, boolean> } }[];
   const routes = stack.flatMap((l) => (l.route ? [l.route] : []));
-  expect(routes.length).toBeGreaterThanOrEqual(1); // non-vacuity; T4 raises this to 3
+  expect(routes.length).toBeGreaterThanOrEqual(3); // non-vacuity: feedback, metrics, flagged
   expect(stack.every((l) => !!l.route)).toBe(true); // no nested use() to hide routes
   const cookie = await asStudent();
   for (const route of routes) {

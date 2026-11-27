@@ -57,13 +57,12 @@ describe("admin gate", () => {
     }
   });
 
-  // the flagged handler lands in T4, so only feedback and metrics can answer 200 here.
-  it.each(["/api/admin/feedback", "/api/admin/watbot/metrics"])("admin → 200 on %s", async (p) => {
+  it.each(PATHS)("admin → 200 on %s", async (p) => {
     const cookie = await asAdmin();
     expect((await request(app).get(p + Q).set("Cookie", cookie)).status).toBe(200);
   });
 
-  it.each(["/api/admin/feedback", "/api/admin/watbot/metrics"])("%s: 422s on a bad range, as plain sentences", async (p) => {
+  it.each(PATHS)("%s: 422s on a bad range, as plain sentences", async (p) => {
     const cookie = await asAdmin();
     for (const q of ["?from=2026-02-30&to=2026-03-02", "?from=2026-11-01&to=2026-11-31", "?from=2026-11-27&to=2026-11-01", "?from=2026-01-01&to=2026-11-27", "?from=2099-01-01&to=2099-01-02", "?from=x&to=y"]) {
       const res = await request(app).get(p + q).set("Cookie", cookie);
@@ -72,11 +71,13 @@ describe("admin gate", () => {
     }
   });
 
-  it("422s on an unknown modelId (metrics only; feedback ignores it)", async () => {
+  it("422s on an unknown modelId (metrics and flagged; feedback ignores it)", async () => {
     const cookie = await asAdmin();
-    const res = await request(app).get("/api/admin/watbot/metrics" + Q + "&modelId=nope").set("Cookie", cookie);
-    expect(res.status).toBe(422);
-    expect(res.body.error).toMatch(/^[A-Z][^[{]*\.$/);
+    for (const p of ["/api/admin/watbot/metrics", "/api/admin/watbot/flagged"]) {
+      const res = await request(app).get(p + Q + "&modelId=nope").set("Cookie", cookie);
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/^[A-Z][^[{]*\.$/);
+    }
   });
 });
 
