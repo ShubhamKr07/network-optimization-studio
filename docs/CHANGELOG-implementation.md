@@ -5943,3 +5943,21 @@ Owner-only `/admin` page: WatBot usage, quality, cost and reliability, plus flag
 - Spec 2: classes, rosters, instructor scope, Privacy Notice change.
 - The `e2e_accuracy` single-source failures on `main`.
 - The rollout itself, which needs its own approvals: role audit → schema → nos-api → nos-studio → grant.
+
+## QFA — admin dashboard quick fixes (2026-11-28)
+
+Owner-requested after the ADM rollout. These are two changes, not a spec rewrite.
+
+- **QFA-1 `ca2d12fd`:** "Include admin accounts" switch, off by default (owner's choice).
+  - **Why:** spec D9 excluded admins, and the owner's own account, now admin, held 60 of 64 production WatBot messages, so "not all my conversations" showed.
+  - **Contract:** `includeAdmins` on `/admin/watbot/metrics` and `/flagged` only (site feedback is anonymous). The server's `roleAllowlist()` picks between two fixed literals; only the string `"true"` turns it on. The generated zod `coerce.boolean()` would read `"false"` as true. Routes never use it, and a comment says so.
+  - **Tests:** cover ratings, reports, gap topics and cost growing with the switch. The red proof was a reverted inline allowlist.
+  - **Spec:** D9 and §4 updated.
+- **QFA-2 `ecca2d8e`:** "← Back to labs" link at the start of the admin title row. In the standard AppShell header, "Offered by Michael Watson" is now subtext under the name. It is muted at `opacity-80` (5.58:1) rather than smaller, because of the 11px floor test. The hero header is unchanged.
+- **Reviews:** Opus ACCEPT on both; the QFA-1 minors were folded in.
+- **Gates on `qfa` @ `ca2d12fd`:**
+  - typecheck clean;
+  - api-server 2563/2564: `importJsonRoundTrip` › "transport added station" (registered flake) passed 45/45 ×2 isolated;
+  - studio 3370/3370; pytest 369;
+  - `e2e:gate` 281 expected, 0 unexpected, 0 flaky (started at load 5).
+- **Deploy:** nos-api (the new parameter), then nos-studio. No schema change.
