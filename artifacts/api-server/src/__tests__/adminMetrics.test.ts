@@ -117,4 +117,16 @@ describe("getAdminMetrics", () => {
     expect(m.days[0]).toMatchObject({ asked: 3, answered: 1, unavailable: 1, limitReached: 1, notices: 0, ratings: 0, failedNotices: 1, estimated: 1 });
     expect(m.period.answered).toBe(1);
   });
+
+  it("includeAdmins adds the admin's rating, report, gap topic and cost; off leaves the student-only figures", async () => {
+    const now = new Date("2026-01-20T12:00:00Z");
+    const off = (await getAdminMetrics(RANGE, now)).period, on = (await getAdminMetrics({ ...RANGE, includeAdmins: true }, now)).period;
+    expect((await getAdminMetrics({ ...RANGE, includeAdmins: false }, now)).period).toEqual(off);
+    expect(off.ratings).toBe(2);
+    expect(on.ratings).toBe(off.ratings + 1);
+    expect(on.reportsByReason).toEqual([...off.reportsByReason, { reason: "other", count: 1 }].sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)));
+    expect(on.gapTopics).toContainEqual({ topic: "Admin gap", count: 1, nearestCovered: "X" });
+    expect(off.gapTopics.map(g => g.topic)).not.toContain("Admin gap");
+    expect(on.costUsd).toBeCloseTo(off.costUsd + 9.99, 4);
+  });
 });

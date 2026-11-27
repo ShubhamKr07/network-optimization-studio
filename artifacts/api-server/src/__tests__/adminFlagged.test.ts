@@ -132,3 +132,35 @@ describe("GET /api/admin/watbot/flagged", () => {
     expect(res.body).toEqual({ truncated: false, items: [] });
   });
 });
+
+// QFA-1: the "Include admin accounts" switch, over real HTTP. Only the literal "true" turns it on.
+describe("includeAdmins switch (D9)", () => {
+  const RANGE = "from=2026-01-20&to=2026-01-20";
+  const texts = (r: { body: { items: { answer: { text: string } }[] } }) => r.body.items.map(i => i.answer.text);
+  const metrics = (qs: string) => request(app).get(`/api/admin/watbot/metrics?${RANGE}${qs}`).set("Cookie", adminCookie);
+
+  it.each(["", "&includeAdmins=false", "&includeAdmins=yes", "&includeAdmins=1"])("flagged excludes the admin's reply with %j", async (qs) => {
+    expect(texts(await get(RANGE + qs))).not.toContain("Admin answer.");
+  });
+  it("flagged includes the admin's reply (once, though rated and reported) with includeAdmins=true; student rows count either way", async () => {
+    const off = texts(await get(RANGE)), on = texts(await get(`${RANGE}&includeAdmins=true`));
+    expect(on.filter(t => t === "Admin answer.")).toHaveLength(1);
+    expect(on).toHaveLength(off.length + 1);
+    for (const t of ["Orphan answer.", "Answer two.", "Answer one.", "Answer four."]) { expect(off).toContain(t); expect(on).toContain(t); }
+  });
+  it.each(["", "&includeAdmins=false", "&includeAdmins=yes"])("metrics ignore the admin with %j", async (qs) => {
+    const base = (await metrics("")).body.period;
+    const p = (await metrics(qs)).body.period;
+    expect([p.answered, p.activeStudents]).toEqual([base.answered, base.activeStudents]);
+  });
+  it.each(["&includeAdmins=1", "&includeAdmins=true&includeAdmins=true"])("metrics treat %j as off", async (qs) => {
+    const base = (await metrics("")).body.period, p = (await metrics(qs)).body.period;
+    expect([p.answered, p.activeStudents]).toEqual([base.answered, base.activeStudents]);
+  });
+  it("metrics add the admin's answered question and active user with includeAdmins=true", async () => {
+    const off = (await metrics("")).body.period, on = (await metrics("&includeAdmins=true")).body.period;
+    expect(on.answered).toBe(off.answered + 1);
+    expect(on.activeStudents).toBe(off.activeStudents + 1);
+    expect(off.answered).toBeGreaterThan(0);
+  });
+});

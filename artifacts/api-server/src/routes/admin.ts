@@ -30,6 +30,7 @@ admin.get("/feedback", async (req, res) => {
 });
 
 admin.get("/watbot/metrics", async (req, res) => {
+  // Never parse admin queries with the generated *QueryParams schemas: zod coerce.boolean turns 'false' into true.
   const p = parseAdminRange(req.query as Record<string, unknown>, undefined);
   if (!p.ok) { res.status(422).json({ error: p.error }); return; }
   try { res.json(GetAdminWatBotMetricsResponse.parse(await getAdminMetrics(p.range))); }

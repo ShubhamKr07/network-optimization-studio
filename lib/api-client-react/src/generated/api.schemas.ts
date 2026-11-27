@@ -2058,6 +2058,10 @@ to: string;
  * Restrict to one chapter model.
  */
 modelId?: string;
+/**
+ * Count admin accounts too. Only the string "true" turns it on.
+ */
+includeAdmins?: boolean;
 };
 
 export type GetAdminWatBotFlaggedParams = {
@@ -2075,6 +2079,10 @@ to: string;
  * Restrict to one chapter model.
  */
 modelId?: string;
+/**
+ * Count admin accounts too. Only the string "true" turns it on.
+ */
+includeAdmins?: boolean;
 };
 
 export type GetAdminFeedbackParams = {

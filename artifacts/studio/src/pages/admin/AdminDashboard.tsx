@@ -30,13 +30,14 @@ export function AdminDashboard() {
   const [preset, setPreset] = useState<Preset>(30);
   const [custom, setCustom] = useState({ from: addDays(today, -13), to: today });
   const [modelId, setModelId] = useState("");
+  const [includeAdmins, setIncludeAdmins] = useState(false);
   const [tab, setTab] = useState<Tab>("usage");
   const [vtab, setVtab] = useState<VoiceTab>("all");
 
   const { from, to } = preset === "custom" ? custom : presetRange(preset);
   const valid = isIsoDate(from) && isIsoDate(to) && from <= to && to <= today && addDays(from, 89) >= to;
   const base = { from, to };
-  const withModel = modelId ? { ...base, modelId } : base;
+  const withModel = { ...base, ...(modelId && { modelId }), ...(includeAdmins && { includeAdmins }) };
   const opts = (queryKey: readonly unknown[]) => ({ query: { queryKey, enabled: valid, ...keep } });
   const metrics = useGetAdminWatBotMetrics(withModel, opts(getGetAdminWatBotMetricsQueryKey(withModel)));
   const flagged = useGetAdminWatBotFlagged(withModel, opts(getGetAdminWatBotFlaggedQueryKey(withModel)));
@@ -76,6 +77,9 @@ export function AdminDashboard() {
             <option value="">All chapters</option>
             {(models ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-[13px]">
+          <input type="checkbox" checked={includeAdmins} onChange={(e) => setIncludeAdmins(e.target.checked)} /> Include admin accounts
         </label>
         <span className="text-xs text-muted-foreground">Days in US Central time · today is {dayLabel(today)}</span>
       </div>

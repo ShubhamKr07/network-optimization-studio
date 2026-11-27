@@ -1190,6 +1190,11 @@ paths:
           required: false
           schema: { type: string }
           description: Restrict to one chapter model.
+        - name: includeAdmins
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Count admin accounts too. Only the string "true" turns it on.
       responses:
         '200':
           description: OK
@@ -1234,6 +1239,11 @@ paths:
           required: false
           schema: { type: string }
           description: Restrict to one chapter model.
+        - name: includeAdmins
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Count admin accounts too. Only the string "true" turns it on.
       responses:
         '200':
           description: OK

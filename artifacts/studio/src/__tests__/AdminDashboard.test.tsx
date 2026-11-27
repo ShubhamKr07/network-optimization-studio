@@ -70,6 +70,20 @@ beforeEach(() => {
   feedbackHook.mockReturnValue(ok(feedback));
 });
 
+describe("/admin include-admins switch", () => {
+  it("is off by default and passes includeAdmins: true to metrics and flagged (not site feedback) when toggled", async () => {
+    renderAt("/admin", "admin");
+    const box = screen.getByRole("checkbox", { name: "Include admin accounts" });
+    expect(box).not.toBeChecked();
+    expect(metricsHook.mock.calls.at(-1)![0]).not.toHaveProperty("includeAdmins");
+    await userEvent.click(box);
+    expect(metricsHook.mock.calls.at(-1)![0]).toMatchObject({ includeAdmins: true });
+    expect(flaggedHook.mock.calls.at(-1)![0]).toMatchObject({ includeAdmins: true });
+    expect(metricsHook.mock.calls.at(-1)![1].query.queryKey).toEqual(expect.arrayContaining([expect.objectContaining({ includeAdmins: true })]));
+    expect(feedbackHook.mock.calls.at(-1)![0]).not.toHaveProperty("includeAdmins");
+  });
+});
+
 describe("/admin", () => {
   it("shows NotFound and no Admin link to a student", () => {
     renderAt("/admin", "student");

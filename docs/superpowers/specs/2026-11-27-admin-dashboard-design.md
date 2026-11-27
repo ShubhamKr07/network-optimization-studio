@@ -29,7 +29,7 @@ Out of scope: instructor access, classes and rosters, any Privacy Notice change 
 | D6 | Layout: numbers and voices side by side (§6). |
 | D7 | Charts: no categorical colour. Single olive series, the validated olive band ramp for magnitude, grey for context lines, amber only for the spending cap (with icon and words). One axis per chart. Every chart has a Table view. Rates show their n and "–" below n = 5. |
 | D8 | **Day boundary: US Central (`America/Chicago`)**, owner 2026-11-27. Days, weeks and date filters use Chicago midnight, so a day is 23 or 25 hours across daylight-saving changes. The one exception is the spending cap: it is enforced per **UTC** month (`watbot/limits.ts:2`), so its meter shows the UTC month and says so. |
-| D9 | WatBot numbers count only users whose role is `student` or `instructor`, an allowlist rather than `<> 'admin'`. So admins, and any malformed role value, are left out. Site feedback cannot be filtered this way (it is anonymous). |
+| D9 | WatBot numbers count only users whose role is `student` or `instructor`, an allowlist rather than `<> 'admin'`. So admins, and any malformed role value, are left out. Site feedback cannot be filtered this way (it is anonymous). (2026-11-28, owner) An 'Include admin accounts' switch, off by default, adds admin accounts back. |
 
 ## 3. Access gate (security-critical)
 
@@ -63,8 +63,9 @@ All three are `GET`, admin-only, and read-only.
 **Query parameters:**
 - `from` and `to` are calendar dates in `America/Chicago` (D8), inclusive. The server turns them into instants with `AT TIME ZONE 'America/Chicago'` and buckets every row by `(created_at AT TIME ZONE 'America/Chicago')::date`. The span is at most 90 days, `from <= to`, and neither may be in the future. Anything else is a 422 with a plain sentence.
 - `modelId` is optional and must be a known model id; an unknown id is a 422.
+- `includeAdmins` — optional; only the string `"true"` adds `admin` to the allowlist; metrics and flagged only.
 
-**WatBot rows** are restricted to users whose `role` is `student` or `instructor` (D9), via a join to `users`. This applies to every query, sessions included.
+**WatBot rows** are restricted to users whose `role` is `student` or `instructor` (D9), via a join to `users`. This applies to every query, sessions included, unless `includeAdmins=true` adds `admin` to the allowlist.
 
 ### 4.1 `GET /api/admin/watbot/metrics`
 Returns counts, not rates, so the studio can bucket by week without losing n. Each block is for the period; `prior` is the same-length period immediately before it, for the tile deltas.

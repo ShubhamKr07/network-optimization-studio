@@ -2,14 +2,12 @@ import { sql, type SQL } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { monthlySpendUsd, monthlyCapUsd } from "../watbot/limits.js";
 import { CLAIM_REMOVED_NOTICE, REFUSED_NOTICE, STOPPED_NOTICE, FAILED_NOTICE } from "../watbot/engine.js";
-import { chicagoStart, chicagoEnd, chicagoDay, priorRange, type AdminRange } from "./adminRange.js";
+import { chicagoStart, chicagoEnd, chicagoDay, priorRange, roleAllowlist, type AdminRange } from "./adminRange.js";
 
 // Wording of the drop notice before 2026-11-25; both texts still sit in old rows.
 const OLD_CLAIM_REMOVED = "One claim was removed — I couldn't support it with a course source.";
 const DROP_TEXTS = [CLAIM_REMOVED_NOTICE, OLD_CLAIM_REMOVED];
 
-// D9: an allowlist, never `<> 'admin'`.
-const allow = sql`u.role IN ('student', 'instructor')`;
 const inRange = (col: SQL, r: AdminRange) => sql`${col} >= ${chicagoStart(r.from)} AND ${col} < ${chicagoEnd(r.to)}`;
 const model = (r: AdminRange) => (r.modelId ? sql`AND c.model_id = ${r.modelId}` : sql``);
 const textIn = (texts: string[]) => sql.join(texts.map(t => sql`${t}`), sql`, `);
@@ -27,7 +25,7 @@ export const blankDay = (date: string) => ({
 const base = (r: AdminRange) => sql`
   SELECT m.*, c.model_id, ${chicagoDay(sql`m.created_at`)} AS day
   FROM watbot_messages m JOIN watbot_conversations c ON c.id = m.conversation_id JOIN users u ON u.id = m.user_id
-  WHERE m.role IN ('student', 'tutor', 'notice') AND ${allow} AND ${inRange(sql`m.created_at`, r)} ${model(r)}`;
+  WHERE m.role IN ('student', 'tutor', 'notice') AND ${roleAllowlist(r)} AND ${inRange(sql`m.created_at`, r)} ${model(r)}`;
 
 export const daysQuery = (r: AdminRange) => sql`
     WITH d AS (SELECT generate_series(${r.from}::date, ${r.to}::date, interval '1 day')::date AS date), b AS (${base(r)})
@@ -63,7 +61,7 @@ async function dayRows(r: AdminRange) {
   const ratings = rowsOf<{ day: string; ratings: string; helped: string }>(sql`
     SELECT ${chicagoDay(sql`f.created_at`)}::text AS day, count(*) AS ratings, count(*) FILTER (WHERE f.helped) AS helped
     FROM watbot_feedback f JOIN watbot_conversations c ON c.id = f.conversation_id JOIN users u ON u.id = f.user_id
-    WHERE ${allow} AND ${inRange(sql`f.created_at`, r)} ${model(r)} GROUP BY 1`);
+    WHERE ${roleAllowlist(r)} AND ${inRange(sql`f.created_at`, r)} ${model(r)} GROUP BY 1`);
   const [d, n, f] = await Promise.all([days, notices, ratings]);
   const byDate = new Map(d.map(row => [row.date!, blankDay(row.date!)]));
   for (const row of d) {
@@ -83,7 +81,7 @@ const sessionGroups = (r: AdminRange) => sql`
   WITH m AS (SELECT m.user_id, c.model_id, m.created_at,
     CASE WHEN lag(m.created_at) OVER w IS NULL OR m.created_at - lag(m.created_at) OVER w > interval '30 minutes' THEN 1 ELSE 0 END AS is_new
     FROM watbot_messages m JOIN watbot_conversations c ON c.id = m.conversation_id JOIN users u ON u.id = m.user_id
-    WHERE m.role = 'student' AND m.status = 'answered' AND ${allow} AND ${inRange(sql`m.created_at`, r)} ${model(r)}
+    WHERE m.role = 'student' AND m.status = 'answered' AND ${roleAllowlist(r)} AND ${inRange(sql`m.created_at`, r)} ${model(r)}
     WINDOW w AS (PARTITION BY m.user_id, c.model_id ORDER BY m.created_at)),
   s AS (SELECT *, sum(is_new) OVER (PARTITION BY user_id, model_id ORDER BY created_at ROWS UNBOUNDED PRECEDING) AS sn FROM m),
   g AS (SELECT user_id, model_id, sn, min(created_at) AS a, max(created_at) AS b, count(*) AS n FROM s GROUP BY 1, 2, 3)`;
@@ -105,15 +103,15 @@ async function period(r: AdminRange) {
     rowsOf<Record<string, string>>(sql`
       SELECT count(*) AS ratings, count(*) FILTER (WHERE f.helped) AS helped, count(*) FILTER (WHERE f.repair_message_id IS NOT NULL) AS reanswered
       FROM watbot_feedback f JOIN watbot_conversations c ON c.id = f.conversation_id JOIN users u ON u.id = f.user_id
-      WHERE ${allow} AND ${inRange(sql`f.created_at`, r)} ${model(r)}`),
+      WHERE ${roleAllowlist(r)} AND ${inRange(sql`f.created_at`, r)} ${model(r)}`),
     rowsOf<{ reason: string | null; count: string }>(sql`
       SELECT coalesce(f.reason, 'other') AS reason, count(*) AS count
       FROM watbot_feedback f JOIN watbot_conversations c ON c.id = f.conversation_id JOIN users u ON u.id = f.user_id
-      WHERE NOT f.helped AND ${allow} AND ${inRange(sql`f.created_at`, r)} ${model(r)} GROUP BY 1 ORDER BY 2 DESC, 1`),
+      WHERE NOT f.helped AND ${roleAllowlist(r)} AND ${inRange(sql`f.created_at`, r)} ${model(r)} GROUP BY 1 ORDER BY 2 DESC, 1`),
     rowsOf<{ reason: string | null; count: string }>(sql`
       SELECT coalesce(p.reason, 'other') AS reason, count(*) AS count
       FROM watbot_reports p JOIN watbot_messages m ON m.id = p.message_id JOIN watbot_conversations c ON c.id = m.conversation_id JOIN users u ON u.id = p.user_id
-      WHERE ${allow} AND ${inRange(sql`p.created_at`, r)} ${model(r)} GROUP BY 1 ORDER BY 2 DESC, 1`),
+      WHERE ${roleAllowlist(r)} AND ${inRange(sql`p.created_at`, r)} ${model(r)} GROUP BY 1 ORDER BY 2 DESC, 1`),
     // "<topic> (nearest covered: <nearest>)" split by the exact stored pattern; a non-match is grouped whole.
     rowsOf<{ key: string; topic: string; nearest: string | null; n: string; first: Date }>(sql`
       WITH b AS (${base(r)})

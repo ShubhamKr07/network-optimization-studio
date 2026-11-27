@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import type { WatBotBlock } from "@workspace/db";
-import { chicagoStart, chicagoEnd, type AdminRange } from "./adminRange.js";
+import { chicagoStart, chicagoEnd, roleAllowlist, type AdminRange } from "./adminRange.js";
 
 type Row = {
   at: Date; model_id: string; blocks: WatBotBlock[]; message_type: string | null; question_blocks: WatBotBlock[] | null;
@@ -25,7 +25,7 @@ export const flaggedQuery = (r: AdminRange) => sql`
     LEFT JOIN watbot_feedback f ON f.message_id = t.id
     LEFT JOIN watbot_messages rm ON rm.id = f.repair_message_id
     LEFT JOIN LATERAL (SELECT reason, note FROM watbot_reports WHERE message_id = t.id ORDER BY id DESC LIMIT 1) r ON true
-    WHERE t.role = 'tutor' AND u.role IN ('student', 'instructor')
+    WHERE t.role = 'tutor' AND ${roleAllowlist(r)}
       AND t.created_at >= ${chicagoStart(r.from)} AND t.created_at < ${chicagoEnd(r.to)}
       ${r.modelId ? sql`AND c.model_id = ${r.modelId}` : sql``}
       AND (f.helped = false OR r.reason IS NOT NULL)

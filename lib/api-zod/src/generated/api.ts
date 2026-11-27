@@ -1299,12 +1299,13 @@ export const SubmitFeedbackBody = zod.object({
  */
 export const getAdminWatBotMetricsQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
 export const getAdminWatBotMetricsQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
-
+export const getAdminWatBotMetricsQueryIncludeAdminsDefault = false;
 
 export const GetAdminWatBotMetricsQueryParams = zod.object({
   "from": zod.coerce.string().regex(getAdminWatBotMetricsQueryFromRegExp).describe('First day, YYYY-MM-DD (Chicago).'),
   "to": zod.coerce.string().regex(getAdminWatBotMetricsQueryToRegExp).describe('Last day, YYYY-MM-DD (Chicago).'),
-  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
+  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.'),
+  "includeAdmins": zod.coerce.boolean().default(getAdminWatBotMetricsQueryIncludeAdminsDefault).describe('Count admin accounts too. Only the string \"true\" turns it on.')
 })
 
 export const getAdminWatBotMetricsResponseDaysItemDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
@@ -1423,12 +1424,13 @@ export const GetAdminWatBotMetricsResponse = zod.object({
  */
 export const getAdminWatBotFlaggedQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
 export const getAdminWatBotFlaggedQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
-
+export const getAdminWatBotFlaggedQueryIncludeAdminsDefault = false;
 
 export const GetAdminWatBotFlaggedQueryParams = zod.object({
   "from": zod.coerce.string().regex(getAdminWatBotFlaggedQueryFromRegExp).describe('First day, YYYY-MM-DD (Chicago).'),
   "to": zod.coerce.string().regex(getAdminWatBotFlaggedQueryToRegExp).describe('Last day, YYYY-MM-DD (Chicago).'),
-  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
+  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.'),
+  "includeAdmins": zod.coerce.boolean().default(getAdminWatBotFlaggedQueryIncludeAdminsDefault).describe('Count admin accounts too. Only the string \"true\" turns it on.')
 })
 
 export const GetAdminWatBotFlaggedResponse = zod.object({

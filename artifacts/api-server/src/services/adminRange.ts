@@ -14,16 +14,19 @@ const isRealDate = (d: string) => {
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === day;
 };
 
-export type AdminRange = { from: string; to: string; modelId?: string };
+export type AdminRange = { from: string; to: string; modelId?: string; includeAdmins?: boolean };
+// D9 allowlist, never `<> 'admin'`: the switch adds 'admin' to it.
+export const roleAllowlist = (r: AdminRange): SQL => (r.includeAdmins ? sql`u.role IN ('student', 'instructor', 'admin')` : sql`u.role IN ('student', 'instructor')`);
 export function parseAdminRange(q: Record<string, unknown>, now = new Date(), opts: { allowModel?: boolean } = {}): { ok: true; range: AdminRange } | { ok: false; error: string } {
   const { from, to, modelId } = q;
+  const includeAdmins = q.includeAdmins === "true"; // only the literal "true"; "yes", "1", arrays are false
   if (typeof from !== "string" || typeof to !== "string" || !isRealDate(from) || !isRealDate(to))
     return { ok: false, error: "Choose a start and end date." };
   if (from > to) return { ok: false, error: "The start date must be on or before the end date." };
   if (to > chicagoToday(now)) return { ok: false, error: "The end date can't be in the future." };
   if (days(from, to) > 90) return { ok: false, error: "Choose a range of 90 days or fewer." };
   if (opts.allowModel !== false && modelId !== undefined && (typeof modelId !== "string" || !getManifest(modelId))) return { ok: false, error: "That chapter model doesn't exist." };
-  return { ok: true, range: { from, to, modelId: opts.allowModel === false ? undefined : (modelId as string | undefined) } };
+  return { ok: true, range: { from, to, modelId: opts.allowModel === false ? undefined : (modelId as string | undefined), includeAdmins } };
 }
 // Chicago midnight → instant. date::timestamp AT TIME ZONE tz reads the wall clock in tz.
 export const chicagoStart = (d: string): SQL => sql`((${d})::date::timestamp AT TIME ZONE ${TZ})`;
@@ -31,5 +34,5 @@ export const chicagoEnd = (d: string): SQL => sql`(((${d})::date + 1)::timestamp
 export const chicagoDay = (col: SQL): SQL => sql`((${col}) AT TIME ZONE ${TZ})::date`;
 export const priorRange = (r: AdminRange): AdminRange => {
   const n = days(r.from, r.to), f = new Date(Date.parse(r.from) - n * 86_400_000), t = new Date(Date.parse(r.from) - 86_400_000);
-  return { from: f.toISOString().slice(0, 10), to: t.toISOString().slice(0, 10), modelId: r.modelId };
+  return { from: f.toISOString().slice(0, 10), to: t.toISOString().slice(0, 10), modelId: r.modelId, includeAdmins: r.includeAdmins };
 };
