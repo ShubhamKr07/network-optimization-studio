@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { AdminFlaggedAnswers, AdminSiteFeedback } from "@workspace/api-client-react";
 import { dayLabel, chicagoToday, MESSAGE_TYPE_LABEL, REASON } from "@/lib/adminMetrics";
 
@@ -11,9 +12,10 @@ type Site = AdminSiteFeedback["items"][number];
 
 function FlaggedItem({ f, modelName }: { f: Flagged; modelName: (id: string) => string }) {
   return (
-    <details className="mb-2.5 rounded-lg border border-border bg-card">
-      <summary className="cursor-pointer rounded-lg p-3 hover:bg-secondary">
+    <details className="group mb-2.5 rounded-lg border border-border bg-card">
+      <summary className="cursor-pointer list-none rounded-lg p-3 hover:bg-secondary [&::-webkit-details-marker]:hidden">
         <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <ChevronRight size={14} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-90" />
           {f.report && <span className={`${tag} border-foreground/50 text-foreground`}>Reported · {reason(f.report.reason)}</span>}
           {f.rating && <span className={`${tag} text-primary`}>Not helped · {reason(f.rating.reason)}</span>}
           <span>{modelName(f.modelId)} · {f.messageType ? MESSAGE_TYPE_LABEL[f.messageType] ?? f.messageType : "Unrecorded"} · {dayLabel(chicagoToday(new Date(f.at)))}</span>

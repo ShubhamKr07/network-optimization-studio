@@ -122,7 +122,7 @@ export function AppShell({ userEmail, children, heroTitle, hero, isAdmin }: AppS
             ? <div className="scnd-display text-lg font-semibold" style={{ color: "var(--green-400)" }}>{heroTitle}</div>
             : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>Network Design Labs</div>}
         </div>
-        <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
+        <span className="text-sm max-sm:sr-only" title={userEmail} style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
         {isAdmin && <Link href="/admin" data-testid="link-admin" className="text-sm hover:underline" style={{ color: "var(--ink-300)" }}>Admin</Link>}
         <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout"
           className="hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"

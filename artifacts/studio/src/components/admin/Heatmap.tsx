@@ -1,21 +1,42 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChartCard } from "./ChartCard";
 import { heatBins, num } from "@/lib/adminMetrics";
 
+const SHORT: Record<string, string> = { "Incorrect attempt": "Incorrect", "Correct attempt": "Correct" };
+const TINY: Record<string, string> = { Incorrect: "Incorr.", Correct: "Corr.", "Off-topic": "Off-top.", Unrecorded: "Unrec." };
+
 export function Heatmap({ rows, cols, counts }: { rows: string[]; cols: string[]; counts: number[][] }) {
   const [focus, setFocus] = useState<string | null>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const [tiny, setTiny] = useState(false);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    // cell width = (card width - label column) / columns; abbreviate below 60px
+    const ro = new ResizeObserver(() => setTiny((el.clientWidth * 0.7) / cols.length < 60));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [cols.length]);
   const bins = heatBins(counts.flat());
   const empty = !counts.flat().some((v) => v > 0);
   return (
     <ChartCard id="heat" title="Chapter × message type" meta="Answered questions; see the key below"
       table={{ cols: ["Chapter", ...cols], rows: rows.map((r, i) => [r, ...counts[i].map(num)]) }} empty={empty}>
+      <div ref={wrap} className="overflow-x-auto">
       <div role="group" aria-label="Questions by chapter and message type; stronger colour means more"
-        className="grid gap-0.5" style={{ gridTemplateColumns: `minmax(64px,auto) repeat(${cols.length}, minmax(0,1fr))` }}>
+        className="grid gap-0.5" style={{ minWidth: 120 + cols.length * 44, gridTemplateColumns: `minmax(80px,min(30%,200px)) repeat(${cols.length}, minmax(44px,1fr))` }}>
         <span />
-        {cols.map((c) => <span key={c} className="text-center text-[11px] text-muted-foreground">{c}</span>)}
+        {cols.map((c) => {
+          const short = SHORT[c] ?? c;
+          return (
+            <span key={c} title={c} aria-label={c} className="text-center text-[11px] text-muted-foreground">
+              {tiny ? TINY[short] ?? short : short}
+            </span>
+          );
+        })}
         {rows.map((r, i) => (
           <div key={r} className="contents">
-            <span className="self-center pr-2 text-[13px]">{r}</span>
+            <span title={r} className="line-clamp-2 self-center break-words pr-2 text-[13px]">{r}</span>
             {cols.map((c, j) => {
               const b = bins[i * cols.length + j];
               return (
@@ -30,6 +51,7 @@ export function Heatmap({ rows, cols, counts }: { rows: string[]; cols: string[]
             })}
           </div>
         ))}
+      </div>
       </div>
       <div className="mt-2 min-h-4 text-xs text-foreground" role="status" aria-live="polite">{focus}</div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

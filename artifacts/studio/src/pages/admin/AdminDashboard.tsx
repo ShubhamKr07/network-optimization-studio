@@ -120,7 +120,7 @@ function Panel({ tab, m, modelName }: { tab: Tab; m: AdminWatBotMetrics; modelNa
       <Heatmap rows={rows.map(modelName)} cols={types.map((t) => (t ? MESSAGE_TYPE_LABEL[t] : UNRECORDED))} counts={counts} />
       <BarListCard id="u3" title="Sessions per week" valueHead="Sessions" horizontal={false} fmt={num}
         meta={`Median ${p.sessionMedianMinutes} min · ${p.sessionMedianQuestions} question${p.sessionMedianQuestions === 1 ? "" : "s"} per session`}
-        items={m.sessionsByWeek.map((w) => [`Week of ${dayLabel(w.weekStart)}`, w.sessions])} />
+        items={m.sessionsByWeek.map((w) => [dayLabel(w.weekStart), w.sessions])} />
       <BarListCard id="u4" title="Students per chapter" meta="Asked at least one question" valueHead="Students" horizontal fmt={num}
         items={p.studentsByModel.map((s) => [modelName(s.modelId), s.students])} />
     </>;
