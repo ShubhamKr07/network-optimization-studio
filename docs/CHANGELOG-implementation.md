@@ -5867,3 +5867,11 @@ Branch `wqf-b`. Spec: `docs/superpowers/specs/2026-11-25-watbot-qf-bundle-design
 - Footer credit split into "Developed by Shubham" (band ink, semi-bold) with "Facing issues? Reach out at [LinkedIn][email]" as 12px subtext under it.
 - Feedback panel text was unreadable in light: the panel sets `bg-background` but no text colour, so it inherited the green footer's `#CFDDD0` (heading measured 1.38:1 on white). Panel now carries `text-foreground`. The page-wide contrast tests never opened the panel, so a new `home-cover.spec.ts` case measures it open in light and dark (fails on the old code at 1.38:1, passes now). `homeContrast.ts` now skips disabled controls (WCAG 1.4.3 inactive-UI exemption; the panel's Send is disabled while empty), matching the cover-sign-in helper.
 - Gate: typecheck clean; studio vitest 205 files / 3346 passed; typecheck:e2e clean; home-cover + feedback + bundle5 specs green locally (home-cover 15 passed incl. the 2 new cases).
+
+### HCV feedback panel contrast (review notes of 952e6536)
+
+- Feedback error text `text-destructive` → `text-[color:var(--danger)]` (the app's themed red text token, already used for "failed" in Recent solves). Dark was 3.69:1 measured; the shared `--destructive` is left as is (DU-5 Q3 kept white-on-red as a known exception, a user decision).
+- Textarea placeholder now `placeholder:text-muted-foreground` (was Tailwind v4's 50% currentColor, 3.36:1 computed in light).
+- `homeContrast.ts`: the inactive-control skip narrowed from any `[aria-disabled='true']` to `button:disabled` and `button`/`a`/`[role=button]` with `aria-disabled`, so a future locked card or row cannot be silently exempted.
+- e2e: error text after a stubbed failed send measured in light and dark; placeholder colour must equal the measured muted-foreground hint. On the old code the dark error case fails at 3.69:1 and both placeholder cases fail; light error passed before (4.71:1) and is a guard.
+- Gate: typecheck clean; studio vitest 205 files / 3346 passed; typecheck:e2e clean; home-cover + feedback specs 22/22 locally.

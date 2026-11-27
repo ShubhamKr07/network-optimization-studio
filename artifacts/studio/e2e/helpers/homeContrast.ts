@@ -76,7 +76,7 @@ export async function measureHomeContrast(page: Page, min = 4.5): Promise<HomeCo
       if (!text || el.closest(".sr, [aria-hidden='true']")) continue;
       // WCAG 1.4.3 exempts inactive controls (e.g. the feedback panel's Send while the box is empty);
       // cover-sign-in's helper makes the same exception for its disabled submit.
-      if (el.closest("button:disabled, [aria-disabled='true']")) continue;
+      if (el.closest("button:disabled, :is(button, a, [role='button'])[aria-disabled='true']")) continue;
       const cs = getComputedStyle(el);
       const r = el.getBoundingClientRect();
       if (cs.visibility === "hidden" || cs.display === "none" || r.width === 0 || r.height === 0) continue;

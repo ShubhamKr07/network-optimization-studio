@@ -169,4 +169,33 @@ test.describe("home cover (HCV)", () => {
       expect(r.findings).toEqual([]);
     });
   }
+
+  // Review notes: the panel's error text and the textarea placeholder are invisible to the text-node walk
+  // (the error needs a failed send; a placeholder is a pseudo-element).
+  for (const scheme of ["light", "dark"] as const) {
+    test(`feedback error text >= 4.5:1 after a failed send (${scheme})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.route("**/api/feedback", route => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) }));
+      await home(page, scheme);
+      await page.getByTestId("feedback-button").click({ timeout: T });
+      await page.getByTestId("feedback-input").fill("e2e feedback");
+      await page.getByTestId("feedback-send").click({ timeout: T });
+      await expect(page.getByTestId("feedback-error")).toBeVisible({ timeout: T });
+      const r = await measureHomeContrast(page);
+      expect(r.findings).toEqual([]);
+    });
+
+    test(`feedback placeholder uses the muted-foreground token (${scheme})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await home(page, scheme);
+      await page.getByTestId("feedback-button").click({ timeout: T });
+      // The hint above it is muted-foreground and is measured >= 4.5:1 by the open-panel case; the
+      // placeholder must resolve to that same colour, not Tailwind's 50% currentColor default.
+      const [placeholder, hint] = await Promise.all([
+        page.getByTestId("feedback-input").evaluate(el => getComputedStyle(el, "::placeholder").color),
+        page.getByTestId("feedback-anonymity-hint").evaluate(el => getComputedStyle(el).color),
+      ]);
+      expect(placeholder).toBe(hint);
+    });
+  }
 });
