@@ -9,6 +9,7 @@ import scenariosRouter from "./scenarios.js";
 import solveHistoryRouter from "./solveHistory.js";
 import landingSummaryRouter from "./landingSummary.js";
 import authRouter from "./auth.js";
+import adminRouter from "./admin.js";
 // Chen-bands-units bundle, Part G / T9 — field-scoped distance-bands PATCH.
 // This repo's actual mounting convention is "every router registers here",
 // not directly in app.ts (app.ts mounts ONE combined router at /api) — the
@@ -27,6 +28,9 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+// ADM (spec §3.2) — must sit right after authRouter: every router below mounts
+// requireAuth path-lessly and would answer an admin path with 401, not 404.
+router.use(adminRouter);
 router.use(datasetRouter);
 router.use(modelsRouter);
 router.use(referenceDistancesRouter);

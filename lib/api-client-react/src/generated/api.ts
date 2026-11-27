@@ -20,6 +20,9 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdminFlaggedAnswers,
+  AdminSiteFeedback,
+  AdminWatBotMetrics,
   AskWatBotRequest,
   AuthUserEnvelope,
   CreateWatBotConversationRequest,
@@ -34,6 +37,9 @@ import type {
   FetchScenarioRoadDistances200,
   ForgotPasswordAccepted,
   ForgotPasswordRequest,
+  GetAdminFeedbackParams,
+  GetAdminWatBotFlaggedParams,
+  GetAdminWatBotMetricsParams,
   GetDatasetParams,
   GetSolveHistoryParams,
   HealthStatus,
@@ -2521,6 +2527,261 @@ export const useSubmitFeedback = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getSubmitFeedbackMutationOptions(options));
     }
+
+export const getGetAdminWatBotMetricsUrl = (params: GetAdminWatBotMetricsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/watbot/metrics?${stringifiedParams}` : `/api/admin/watbot/metrics`
+}
+
+/**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary WatBot usage metrics
+ */
+export const getAdminWatBotMetrics = async (params: GetAdminWatBotMetricsParams, options?: RequestInit): Promise<AdminWatBotMetrics> => {
+
+  return customFetch<AdminWatBotMetrics>(getGetAdminWatBotMetricsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminWatBotMetricsQueryKey = (params?: GetAdminWatBotMetricsParams,) => {
+    return [
+    `/api/admin/watbot/metrics`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAdminWatBotMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminWatBotMetrics>>, TError = ErrorType<ErrorEnvelope>>(params: GetAdminWatBotMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminWatBotMetricsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminWatBotMetrics>>> = ({ signal }) => getAdminWatBotMetrics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminWatBotMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminWatBotMetrics>>>
+export type GetAdminWatBotMetricsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary WatBot usage metrics
+ */
+
+export function useGetAdminWatBotMetrics<TData = Awaited<ReturnType<typeof getAdminWatBotMetrics>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetAdminWatBotMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminWatBotMetricsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAdminWatBotFlaggedUrl = (params: GetAdminWatBotFlaggedParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/watbot/flagged?${stringifiedParams}` : `/api/admin/watbot/flagged`
+}
+
+/**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary Flagged WatBot answers
+ */
+export const getAdminWatBotFlagged = async (params: GetAdminWatBotFlaggedParams, options?: RequestInit): Promise<AdminFlaggedAnswers> => {
+
+  return customFetch<AdminFlaggedAnswers>(getGetAdminWatBotFlaggedUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminWatBotFlaggedQueryKey = (params?: GetAdminWatBotFlaggedParams,) => {
+    return [
+    `/api/admin/watbot/flagged`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAdminWatBotFlaggedQueryOptions = <TData = Awaited<ReturnType<typeof getAdminWatBotFlagged>>, TError = ErrorType<ErrorEnvelope>>(params: GetAdminWatBotFlaggedParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotFlagged>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminWatBotFlaggedQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminWatBotFlagged>>> = ({ signal }) => getAdminWatBotFlagged(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotFlagged>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminWatBotFlaggedQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminWatBotFlagged>>>
+export type GetAdminWatBotFlaggedQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Flagged WatBot answers
+ */
+
+export function useGetAdminWatBotFlagged<TData = Awaited<ReturnType<typeof getAdminWatBotFlagged>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetAdminWatBotFlaggedParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminWatBotFlagged>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminWatBotFlaggedQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAdminFeedbackUrl = (params: GetAdminFeedbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/feedback?${stringifiedParams}` : `/api/admin/feedback`
+}
+
+/**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary Anonymous site feedback
+ */
+export const getAdminFeedback = async (params: GetAdminFeedbackParams, options?: RequestInit): Promise<AdminSiteFeedback> => {
+
+  return customFetch<AdminSiteFeedback>(getGetAdminFeedbackUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminFeedbackQueryKey = (params?: GetAdminFeedbackParams,) => {
+    return [
+    `/api/admin/feedback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAdminFeedbackQueryOptions = <TData = Awaited<ReturnType<typeof getAdminFeedback>>, TError = ErrorType<ErrorEnvelope>>(params: GetAdminFeedbackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminFeedbackQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminFeedback>>> = ({ signal }) => getAdminFeedback(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminFeedback>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminFeedbackQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminFeedback>>>
+export type GetAdminFeedbackQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Anonymous site feedback
+ */
+
+export function useGetAdminFeedback<TData = Awaited<ReturnType<typeof getAdminFeedback>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetAdminFeedbackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminFeedbackQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetWatBotStatusUrl = () => {
 

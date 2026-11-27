@@ -274,6 +274,156 @@ export const LogoutSuccessValue = {
 } as const;
 export type LogoutSuccess = typeof LogoutSuccessValue;
 
+export type AdminWatBotMetricsDaysItem = {
+  date: string;
+  asked: number;
+  answered: number;
+  cancelled: number;
+  unavailable: number;
+  limitReached: number;
+  ratings: number;
+  helped: number;
+  notices: number;
+  refused: number;
+  stopped: number;
+  failedNotices: number;
+  costUsd: number;
+  latencyMedianMs: number | null;
+  latencyP95Ms: number | null;
+  estimated: number;
+};
+
+export type AdminWatBotMetricsMatrixItem = {
+  modelId: string;
+  messageType: string | null;
+  answered: number;
+};
+
+export type AdminWatBotMetricsSessionsByWeekItem = {
+  weekStart: string;
+  sessions: number;
+  medianMinutes: number;
+  medianQuestions: number;
+};
+
+export type AdminWatBotMetricsMonthToDate = {
+  spendUsd: number;
+  capUsd: number;
+  /** UTC month, YYYY-MM */
+  month: string;
+};
+
+export type AdminWatBotPeriodStudentsByModelItem = {
+  modelId: string;
+  students: number;
+};
+
+export type AdminWatBotPeriodNotHelpedByReasonItem = {
+  reason: string;
+  count: number;
+};
+
+export type AdminWatBotPeriodReportsByReasonItem = {
+  reason: string;
+  count: number;
+};
+
+export type AdminWatBotPeriodTokens = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+export type AdminWatBotPeriodGapTopicsItem = {
+  topic: string;
+  count: number;
+  nearestCovered: string | null;
+};
+
+export interface AdminWatBotPeriod {
+  answered: number;
+  activeStudents: number;
+  studentsByModel: AdminWatBotPeriodStudentsByModelItem[];
+  sessions: number;
+  sessionMedianMinutes: number;
+  sessionMedianQuestions: number;
+  ratings: number;
+  helped: number;
+  notHelpedByReason: AdminWatBotPeriodNotHelpedByReasonItem[];
+  reanswered: number;
+  reportsByReason: AdminWatBotPeriodReportsByReasonItem[];
+  costUsd: number;
+  tokens: AdminWatBotPeriodTokens;
+  gapTopics: AdminWatBotPeriodGapTopicsItem[];
+}
+
+export interface AdminWatBotMetrics {
+  days: AdminWatBotMetricsDaysItem[];
+  matrix: AdminWatBotMetricsMatrixItem[];
+  period: AdminWatBotPeriod;
+  prior: AdminWatBotPeriod;
+  sessionsByWeek: AdminWatBotMetricsSessionsByWeekItem[];
+  monthToDate: AdminWatBotMetricsMonthToDate;
+}
+
+export type AdminFlaggedAnswersItemsItemAnswer = {
+  text: string;
+  citations: string[];
+};
+
+export type AdminFlaggedAnswersItemsItemRating = {
+  reason: string | null;
+  note: string | null;
+} | null;
+
+export type AdminFlaggedAnswersItemsItemReport = {
+  reason: string | null;
+  note: string | null;
+} | null;
+
+export type AdminFlaggedAnswersItemsItemReanswerStatus = typeof AdminFlaggedAnswersItemsItemReanswerStatus[keyof typeof AdminFlaggedAnswersItemsItemReanswerStatus];
+
+
+export const AdminFlaggedAnswersItemsItemReanswerStatus = {
+  answered: 'answered',
+  not_completed: 'not_completed',
+  none: 'none',
+} as const;
+
+export type AdminFlaggedAnswersItemsItemReanswer = {
+  status: AdminFlaggedAnswersItemsItemReanswerStatus;
+  text: string | null;
+};
+
+export type AdminFlaggedAnswersItemsItem = {
+  at: string;
+  modelId: string;
+  messageType: string | null;
+  /** null when no student message precedes the reply in its conversation */
+  question: string | null;
+  answer: AdminFlaggedAnswersItemsItemAnswer;
+  rating: AdminFlaggedAnswersItemsItemRating;
+  report: AdminFlaggedAnswersItemsItemReport;
+  reanswer: AdminFlaggedAnswersItemsItemReanswer;
+};
+
+export interface AdminFlaggedAnswers {
+  truncated: boolean;
+  items: AdminFlaggedAnswersItemsItem[];
+}
+
+export type AdminSiteFeedbackItemsItem = {
+  id: number;
+  body: string;
+  createdAt: string;
+};
+
+export interface AdminSiteFeedback {
+  truncated: boolean;
+  items: AdminSiteFeedbackItemsItem[];
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
@@ -1889,6 +2039,47 @@ export type UpdateInboundDistanceBandsBody = {
      * @nullable
      */
   inboundDistanceBands: number[] | null;
+};
+
+export type GetAdminWatBotMetricsParams = {
+/**
+ * First day, YYYY-MM-DD (Chicago).
+ */
+from: string;
+/**
+ * Last day, YYYY-MM-DD (Chicago).
+ */
+to: string;
+/**
+ * Restrict to one chapter model.
+ */
+modelId?: string;
+};
+
+export type GetAdminWatBotFlaggedParams = {
+/**
+ * First day, YYYY-MM-DD (Chicago).
+ */
+from: string;
+/**
+ * Last day, YYYY-MM-DD (Chicago).
+ */
+to: string;
+/**
+ * Restrict to one chapter model.
+ */
+modelId?: string;
+};
+
+export type GetAdminFeedbackParams = {
+/**
+ * First day, YYYY-MM-DD (Chicago).
+ */
+from: string;
+/**
+ * Last day, YYYY-MM-DD (Chicago).
+ */
+to: string;
 };
 
 export type ListWatBotConversationsParams = {

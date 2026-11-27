@@ -1165,6 +1165,134 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /admin/watbot/metrics:
+    get:
+      tags: [Admin]
+      operationId: getAdminWatBotMetrics
+      summary: WatBot usage metrics
+      description: >-
+        Admin only. Every non-admin caller, signed out or not, gets 404.
+        Dates are America/Chicago calendar days, inclusive; at most 90 days,
+        not in the future.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: First day, YYYY-MM-DD (Chicago).
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: Last day, YYYY-MM-DD (Chicago).
+        - name: modelId
+          in: query
+          required: false
+          schema: { type: string }
+          description: Restrict to one chapter model.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWatBotMetrics'
+        '404':
+          description: Not found (also returned to every non-admin caller).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Invalid date range or unknown modelId.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/watbot/flagged:
+    get:
+      tags: [Admin]
+      operationId: getAdminWatBotFlagged
+      summary: Flagged WatBot answers
+      description: >-
+        Admin only. Every non-admin caller, signed out or not, gets 404.
+        Dates are America/Chicago calendar days, inclusive; at most 90 days,
+        not in the future.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: First day, YYYY-MM-DD (Chicago).
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: Last day, YYYY-MM-DD (Chicago).
+        - name: modelId
+          in: query
+          required: false
+          schema: { type: string }
+          description: Restrict to one chapter model.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminFlaggedAnswers'
+        '404':
+          description: Not found (also returned to every non-admin caller).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Invalid date range or unknown modelId.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/feedback:
+    get:
+      tags: [Admin]
+      operationId: getAdminFeedback
+      summary: Anonymous site feedback
+      description: >-
+        Admin only. Every non-admin caller, signed out or not, gets 404.
+        Dates are America/Chicago calendar days, inclusive; at most 90 days,
+        not in the future.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: First day, YYYY-MM-DD (Chicago).
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: Last day, YYYY-MM-DD (Chicago).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSiteFeedback'
+        '404':
+          description: Not found (also returned to every non-admin caller).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Invalid date range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /watbot/status:
     get:
       tags: [WatBot]
@@ -1718,6 +1846,113 @@ components:
         success:
           type: boolean
           const: true
+    AdminWatBotMetrics:
+      type: object
+      required: [days, matrix, period, prior, monthToDate, sessionsByWeek]
+      properties:
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, asked, answered, cancelled, unavailable, limitReached, ratings, helped, notices, refused, stopped, failedNotices, costUsd, latencyMedianMs, latencyP95Ms, estimated]
+            properties:
+              date: { type: string, format: date }
+              asked: { type: integer }
+              answered: { type: integer }
+              cancelled: { type: integer }
+              unavailable: { type: integer }
+              limitReached: { type: integer }
+              ratings: { type: integer }
+              helped: { type: integer }
+              notices: { type: integer }
+              refused: { type: integer }
+              stopped: { type: integer }
+              failedNotices: { type: integer }
+              costUsd: { type: number }
+              latencyMedianMs: { type: number, nullable: true }
+              latencyP95Ms: { type: number, nullable: true }
+              estimated: { type: integer }
+        matrix:
+          type: array
+          items:
+            type: object
+            required: [modelId, messageType, answered]
+            properties:
+              modelId: { type: string }
+              messageType: { type: string, nullable: true }
+              answered: { type: integer }
+        period: { $ref: '#/components/schemas/AdminWatBotPeriod' }
+        prior: { $ref: '#/components/schemas/AdminWatBotPeriod' }
+        sessionsByWeek:
+          type: array
+          items:
+            type: object
+            required: [weekStart, sessions, medianMinutes, medianQuestions]
+            properties:
+              weekStart: { type: string, format: date }
+              sessions: { type: integer }
+              medianMinutes: { type: number }
+              medianQuestions: { type: number }
+        monthToDate:
+          type: object
+          required: [spendUsd, capUsd, month]
+          properties:
+            spendUsd: { type: number }
+            capUsd: { type: number }
+            month: { type: string, description: "UTC month, YYYY-MM" }
+    AdminWatBotPeriod:
+      type: object
+      required: [answered, activeStudents, studentsByModel, sessions, sessionMedianMinutes, sessionMedianQuestions, ratings, helped, notHelpedByReason, reanswered, reportsByReason, costUsd, tokens, gapTopics]
+      properties:
+        answered: { type: integer }
+        activeStudents: { type: integer }
+        studentsByModel: { type: array, items: { type: object, required: [modelId, students], properties: { modelId: { type: string }, students: { type: integer } } } }
+        sessions: { type: integer }
+        sessionMedianMinutes: { type: number }
+        sessionMedianQuestions: { type: number }
+        ratings: { type: integer }
+        helped: { type: integer }
+        notHelpedByReason: { type: array, items: { type: object, required: [reason, count], properties: { reason: { type: string }, count: { type: integer } } } }
+        reanswered: { type: integer }
+        reportsByReason: { type: array, items: { type: object, required: [reason, count], properties: { reason: { type: string }, count: { type: integer } } } }
+        costUsd: { type: number }
+        tokens: { type: object, required: [input, output, cacheRead, cacheWrite], properties: { input: { type: integer }, output: { type: integer }, cacheRead: { type: integer }, cacheWrite: { type: integer } } }
+        gapTopics: { type: array, items: { type: object, required: [topic, count, nearestCovered], properties: { topic: { type: string }, count: { type: integer }, nearestCovered: { type: string, nullable: true } } } }
+    AdminFlaggedAnswers:
+      type: object
+      required: [items, truncated]
+      properties:
+        truncated: { type: boolean }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [at, modelId, messageType, question, answer, rating, report, reanswer]
+            properties:
+              at: { type: string, format: date-time }
+              modelId: { type: string }
+              messageType: { type: string, nullable: true }
+              question: { type: string, nullable: true, description: "null when no student message precedes the reply in its conversation" }
+              answer: { type: object, required: [text, citations], properties: { text: { type: string }, citations: { type: array, items: { type: string } } } }
+              rating: { type: object, nullable: true, required: [reason, note], properties: { reason: { type: string, nullable: true }, note: { type: string, nullable: true } } }
+              report: { type: object, nullable: true, required: [reason, note], properties: { reason: { type: string, nullable: true }, note: { type: string, nullable: true } } }
+              reanswer: { type: object, required: [status, text], properties: { status: { type: string, enum: [answered, not_completed, none] }, text: { type: string, nullable: true } } }
+    AdminSiteFeedback:
+      type: object
+      required: [items, truncated]
+      properties:
+        truncated: { type: boolean }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, body, createdAt]
+            properties:
+              id: { type: integer }
+              body: { type: string }
+              createdAt: { type: string, format: date-time }
     ErrorEnvelope:
       type: object
       required: [error]

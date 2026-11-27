@@ -1294,6 +1294,178 @@ export const SubmitFeedbackBody = zod.object({
 
 
 /**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary WatBot usage metrics
+ */
+export const GetAdminWatBotMetricsQueryParams = zod.object({
+  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).'),
+  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
+})
+
+export const GetAdminWatBotMetricsResponse = zod.object({
+  "days": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "asked": zod.number(),
+  "answered": zod.number(),
+  "cancelled": zod.number(),
+  "unavailable": zod.number(),
+  "limitReached": zod.number(),
+  "ratings": zod.number(),
+  "helped": zod.number(),
+  "notices": zod.number(),
+  "refused": zod.number(),
+  "stopped": zod.number(),
+  "failedNotices": zod.number(),
+  "costUsd": zod.number(),
+  "latencyMedianMs": zod.number().nullable(),
+  "latencyP95Ms": zod.number().nullable(),
+  "estimated": zod.number()
+})),
+  "matrix": zod.array(zod.object({
+  "modelId": zod.string(),
+  "messageType": zod.string().nullable(),
+  "answered": zod.number()
+})),
+  "period": zod.object({
+  "answered": zod.number(),
+  "activeStudents": zod.number(),
+  "studentsByModel": zod.array(zod.object({
+  "modelId": zod.string(),
+  "students": zod.number()
+})),
+  "sessions": zod.number(),
+  "sessionMedianMinutes": zod.number(),
+  "sessionMedianQuestions": zod.number(),
+  "ratings": zod.number(),
+  "helped": zod.number(),
+  "notHelpedByReason": zod.array(zod.object({
+  "reason": zod.string(),
+  "count": zod.number()
+})),
+  "reanswered": zod.number(),
+  "reportsByReason": zod.array(zod.object({
+  "reason": zod.string(),
+  "count": zod.number()
+})),
+  "costUsd": zod.number(),
+  "tokens": zod.object({
+  "input": zod.number(),
+  "output": zod.number(),
+  "cacheRead": zod.number(),
+  "cacheWrite": zod.number()
+}),
+  "gapTopics": zod.array(zod.object({
+  "topic": zod.string(),
+  "count": zod.number(),
+  "nearestCovered": zod.string().nullable()
+}))
+}),
+  "prior": zod.object({
+  "answered": zod.number(),
+  "activeStudents": zod.number(),
+  "studentsByModel": zod.array(zod.object({
+  "modelId": zod.string(),
+  "students": zod.number()
+})),
+  "sessions": zod.number(),
+  "sessionMedianMinutes": zod.number(),
+  "sessionMedianQuestions": zod.number(),
+  "ratings": zod.number(),
+  "helped": zod.number(),
+  "notHelpedByReason": zod.array(zod.object({
+  "reason": zod.string(),
+  "count": zod.number()
+})),
+  "reanswered": zod.number(),
+  "reportsByReason": zod.array(zod.object({
+  "reason": zod.string(),
+  "count": zod.number()
+})),
+  "costUsd": zod.number(),
+  "tokens": zod.object({
+  "input": zod.number(),
+  "output": zod.number(),
+  "cacheRead": zod.number(),
+  "cacheWrite": zod.number()
+}),
+  "gapTopics": zod.array(zod.object({
+  "topic": zod.string(),
+  "count": zod.number(),
+  "nearestCovered": zod.string().nullable()
+}))
+}),
+  "sessionsByWeek": zod.array(zod.object({
+  "weekStart": zod.coerce.date(),
+  "sessions": zod.number(),
+  "medianMinutes": zod.number(),
+  "medianQuestions": zod.number()
+})),
+  "monthToDate": zod.object({
+  "spendUsd": zod.number(),
+  "capUsd": zod.number(),
+  "month": zod.string().describe('UTC month, YYYY-MM')
+})
+})
+
+
+/**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary Flagged WatBot answers
+ */
+export const GetAdminWatBotFlaggedQueryParams = zod.object({
+  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).'),
+  "modelId": zod.coerce.string().optional().describe('Restrict to one chapter model.')
+})
+
+export const GetAdminWatBotFlaggedResponse = zod.object({
+  "truncated": zod.boolean(),
+  "items": zod.array(zod.object({
+  "at": zod.coerce.date(),
+  "modelId": zod.string(),
+  "messageType": zod.string().nullable(),
+  "question": zod.string().nullable().describe('null when no student message precedes the reply in its conversation'),
+  "answer": zod.object({
+  "text": zod.string(),
+  "citations": zod.array(zod.string())
+}),
+  "rating": zod.object({
+  "reason": zod.string().nullable(),
+  "note": zod.string().nullable()
+}).nullable(),
+  "report": zod.object({
+  "reason": zod.string().nullable(),
+  "note": zod.string().nullable()
+}).nullable(),
+  "reanswer": zod.object({
+  "status": zod.enum(['answered', 'not_completed', 'none']),
+  "text": zod.string().nullable()
+})
+}))
+})
+
+
+/**
+ * Admin only. Every non-admin caller, signed out or not, gets 404. Dates are America/Chicago calendar days, inclusive; at most 90 days, not in the future.
+ * @summary Anonymous site feedback
+ */
+export const GetAdminFeedbackQueryParams = zod.object({
+  "from": zod.date().describe('First day, YYYY-MM-DD (Chicago).'),
+  "to": zod.date().describe('Last day, YYYY-MM-DD (Chicago).')
+})
+
+export const GetAdminFeedbackResponse = zod.object({
+  "truncated": zod.boolean(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "body": zod.string(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary WatBot availability and the caller's remaining quota
  */
 export const GetWatBotStatusResponse = zod.object({

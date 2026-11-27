@@ -84,3 +84,22 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   req.userId = user.id;
   next();
 }
+
+/**
+ * ADM — admin gate. EVERY failure answers 404 `Not found` (signed out, stale
+ * terms, deleted account, student, instructor, failed lookup) so the admin
+ * surface is indistinguishable from a route that does not exist.
+ */
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  let user: Awaited<ReturnType<typeof sessionUser>>;
+  try { user = await sessionUser(req); } catch {
+    // No error binding (api-server/CLAUDE.md: drizzle errors carry their params).
+    logger.error({ step: "admin-session-lookup" }, "admin session lookup failed");
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  // Exact raw value, not parseRole: an unknown role must never pass this gate.
+  if (!user || user.role !== "admin") { res.status(404).json({ error: "Not found" }); return; }
+  req.userId = user.id;
+  next();
+}
