@@ -104,6 +104,15 @@ describe("/admin", () => {
     expect(within(card).getAllByRole("row").map((r) => r.textContent)).toContain("Week of 9 Nov4–");
   });
 
+  it("rounds the session median and notes that edge-crossing sessions are cut", () => {
+    metricsHook.mockReturnValue({ data: { ...metrics, period: period({ sessionMedianMinutes: 7.383333333333334, sessionMedianQuestions: 2.5 }) },
+      isError: false, isPlaceholderData: false, refetch: vi.fn() });
+    renderAt("/admin", "admin");
+    const meta = screen.getByTestId("card-u3").textContent ?? "";
+    expect(meta).toContain("Median 7 min · 2.5 questions per session");
+    expect(meta).toContain("sessions crossing the range edge are cut");
+  });
+
   it("a model filter explains that site feedback has no chapter", async () => {
     renderAt("/admin", "admin");
     expect(screen.queryByText("Site feedback has no chapter, so it shows for every chapter.")).not.toBeInTheDocument();
