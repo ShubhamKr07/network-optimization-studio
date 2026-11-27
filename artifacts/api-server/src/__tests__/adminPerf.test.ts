@@ -63,9 +63,9 @@ describe.skipIf(process.env.ADMIN_PERF !== "1")("admin endpoints at 10x volume",
     const reg = await request(app).post("/api/auth/register").send({ email: `${MARKER}admin-${Date.now()}@test.com`, password: "correct horse battery", acceptTerms: true });
     await db.update(usersTable).set({ role: "admin" }).where(eq(usersTable.id, reg.body.user.id));
     cookie = (reg.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
-  }, 600_000);
+  }, 1_800_000); // the seed takes about 10 min at 10x volume, and more under load
 
-  afterAll(cleanup, 600_000);
+  afterAll(cleanup, 1_800_000);
 
   it.each(["/api/admin/watbot/metrics", "/api/admin/watbot/flagged", "/api/admin/feedback"])("%s answers a 90-day range in under 1 s (median of 3)", async (p) => {
     const times: number[] = [];
