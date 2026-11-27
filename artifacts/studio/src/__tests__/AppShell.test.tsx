@@ -132,6 +132,15 @@ describe("AppShell band hero", () => {
     expect(screen.getAllByText("Network Design Labs")).toHaveLength(1);
   });
 
+  it("puts the Offered-by credit after the name, as subtext", () => {
+    renderShell(<AppShell userEmail="a@b.edu"><div>c</div></AppShell>);
+    const header = screen.getByTestId("text-user-email").closest("header") as HTMLElement;
+    const name = screen.getByText("Network Design Labs");
+    const credit = screen.getByText("Offered by Michael Watson");
+    expect(header).toContainElement(credit);
+    expect(name.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("falls back to the Network Design Labs wordmark when no heroTitle is given", () => {
     renderShell(
       <AppShell userEmail="student@example.com">

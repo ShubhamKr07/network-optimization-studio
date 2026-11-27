@@ -117,10 +117,10 @@ export function AppShell({ userEmail, children, heroTitle, hero, isAdmin }: AppS
     <div className="h-screen flex flex-col overflow-hidden">
       <header className="scnd-band flex-shrink-0 flex items-center gap-3 px-4 py-3">
         <div className="flex-1 min-w-0">
-          <div className="scnd-kicker">Offered by Michael Watson</div>
           {heroTitle
             ? <div className="scnd-display text-lg font-semibold" style={{ color: "var(--green-400)" }}>{heroTitle}</div>
             : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>Network Design Labs</div>}
+          <div className="scnd-kicker opacity-80">Offered by Michael Watson</div>
         </div>
         <span className="text-sm max-sm:sr-only" title={userEmail} style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
         {isAdmin && <Link href="/admin" data-testid="link-admin" className="text-sm hover:underline" style={{ color: "var(--ink-300)" }}>Admin</Link>}

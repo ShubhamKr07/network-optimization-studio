@@ -87,6 +87,12 @@ describe("/admin", () => {
     expect(screen.getByText(/Days in US Central time/)).toBeInTheDocument();
   });
 
+  it("links back to the student app", () => {
+    renderAt("/admin", "admin");
+    expect(screen.getByTestId("link-back-to-labs")).toHaveAttribute("href", "/");
+    expect(screen.getByTestId("link-back-to-labs")).toHaveTextContent("Back to labs");
+  });
+
   it("the Table toggle on Questions per day lists the daily counts", async () => {
     renderAt("/admin", "admin");
     const card = screen.getByTestId("card-u1");

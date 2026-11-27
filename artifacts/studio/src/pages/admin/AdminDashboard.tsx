@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "wouter";
+import { ArrowLeft } from "lucide-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import {
   type AdminWatBotMetrics,
@@ -54,6 +56,9 @@ export function AdminDashboard() {
   return (
     <div data-testid="admin-dashboard">
       <div role="region" aria-label="Filters" className="flex flex-wrap items-center gap-2.5 border-b border-border bg-card px-7 py-3">
+        <Link href="/" data-testid="link-back-to-labs" className="inline-flex items-center gap-1 rounded-sm text-[13px] text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />Back to labs
+        </Link>
         <h1 className="mr-2 text-base font-semibold">Admin · WatBot and feedback</h1>
         <div role="group" aria-label="Date range" className="flex gap-1">
           {([7, 30, 90, "custom"] as const).map((p) => (
