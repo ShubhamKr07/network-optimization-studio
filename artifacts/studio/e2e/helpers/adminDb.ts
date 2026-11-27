@@ -20,7 +20,7 @@ export function setRole(email: string, role: "student" | "instructor" | "admin")
 
 // One flagged (rated not-helped) exchange for a student, dated now() so every preset includes it.
 export function seedAdminFixture(studentEmail: string, tag: string, modelId = "p-median-us"): void {
-  psql(
+  const inserted = psql(
     `WITH u AS (SELECT id FROM users WHERE email = :'email'),
 c AS (INSERT INTO watbot_conversations (user_id, model_id, title) SELECT id, :'model', :'tag' FROM u RETURNING id, user_id),
 s AS (INSERT INTO watbot_messages (conversation_id, user_id, role, blocks, message_type, status)
@@ -29,10 +29,11 @@ t AS (INSERT INTO watbot_messages (conversation_id, user_id, role, blocks, usage
       SELECT c.id, c.user_id, 'tutor', jsonb_build_array(jsonb_build_object('text', 'Capacity limits can fill the nearest site.', 'citations', jsonb_build_array(jsonb_build_object('passageId', 1, 'label', 'Ch 3 · p.71', 'citedText', 'x')))),
              '{"inputTokens":100,"outputTokens":50,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.01}'::jsonb, 2500
       FROM c, s RETURNING id, conversation_id, user_id)
-INSERT INTO watbot_feedback (conversation_id, message_id, user_id, helped, reason) SELECT conversation_id, id, user_id, false, 'still_stuck' FROM t;
+INSERT INTO watbot_feedback (conversation_id, message_id, user_id, helped, reason) SELECT conversation_id, id, user_id, false, 'still_stuck' FROM t RETURNING id;
 `,
     { email: studentEmail, tag, model: modelId },
   );
+  if (!inserted) throw new Error(`seedAdminFixture inserted nothing for ${studentEmail} (no users row?)`);
 }
 
 export function clearAdminFixture(tag: string): void {

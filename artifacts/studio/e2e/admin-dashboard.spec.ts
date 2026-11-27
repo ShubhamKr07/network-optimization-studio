@@ -4,6 +4,7 @@
  * Seeds one flagged exchange per fresh user, dated now() (inside the default
  * 30-day Chicago-time preset), and removes users + fixtures in afterAll.
  */
+import type { Browser } from "@playwright/test";
 import { test, expect, type Page } from "./fixtures";
 import { clearAdminFixture, deleteUser, seedAdminFixture, setRole } from "./helpers/adminDb";
 
@@ -28,14 +29,26 @@ async function login(page: Page, email: string) {
   const res = await page.request.post("/api/auth/login", { data: { email, password: PASSWORD, acceptTerms: true } });
   expect(res.status()).toBeLessThan(300);
 }
+const chicagoDay = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+const shiftDay = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+// Admin-visible baseline for one chapter over the default 30-day Chicago preset, read BEFORE seeding.
+let baseline = { answered: 0, students: 0, flagged: 0 };
 const tile = (page: Page, label: string) => page.getByText(label, { exact: true }).locator("xpath=following-sibling::div[1]");
 
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   await register(page, adminEmail);
   await register(page, studentEmail);
-  await page.close();
   setRole(adminEmail, "admin");
+  await login(page, adminEmail);
+  const q = `from=${shiftDay(chicagoDay(), -29)}&to=${chicagoDay()}&modelId=${DEL_MODEL}`;
+  const m = await page.request.get(`/api/admin/watbot/metrics?${q}`);
+  const f = await page.request.get(`/api/admin/watbot/flagged?${q}`);
+  expect(m.status()).toBe(200);
+  expect(f.status()).toBe(200);
+  const md = await m.json();
+  baseline = { answered: md.period.answered, students: md.period.activeStudents, flagged: (await f.json()).items.length };
+  await page.close();
   seedAdminFixture(studentEmail, TAG_MAIN, "p-median-us");
   seedAdminFixture(studentEmail, TAG_DEL, DEL_MODEL);
 });
@@ -77,34 +90,60 @@ test("choosing the seeded chapter re-scopes the tiles and the voice column toget
   await page.goto("/admin");
   await expect(page.getByTestId("admin-dashboard")).toBeVisible({ timeout: T });
   const flaggedTab = page.getByRole("tab", { name: /^Flagged answers/ });
-  await expect(flaggedTab).toContainText(/[2-9]|\d{2,}/, { timeout: T }); // both seeds are in scope
-  const allCount = Number((await flaggedTab.innerText()).replace(/\D/g, ""));
-  const allAnswered = Number((await tile(page, "Questions answered").innerText()).replace(/\D/g, ""));
-  expect(allCount).toBeGreaterThanOrEqual(2);
-  expect(allAnswered).toBeGreaterThanOrEqual(2);
+  await expect(page.getByText("Questions answered", { exact: true })).toBeVisible({ timeout: T });
+  const heat = page.getByRole("group", { name: /Questions by chapter and message type/ }).locator("xpath=ancestor::section[1]");
+  await expect(heat).toContainText(DEL_NAME, { timeout: T });
+  const heatBefore = await heat.innerText();
+  expect(heatBefore).toContain("P-Median"); // all-chapter view shows the other seeded chapter too
+  await expect.poll(async () => Number((await flaggedTab.innerText()).replace(/\D/g, "")), { timeout: T }).toBeGreaterThanOrEqual(baseline.flagged + 2); // both seeds in scope
 
   await page.getByRole("region", { name: "Filters" }).locator("select").selectOption({ label: DEL_NAME });
-  await expect(flaggedTab).toHaveText(/Flagged answers\s*1$/, { timeout: T });
-  await expect(tile(page, "Questions answered")).toHaveText("1", { timeout: T });
-  await expect(tile(page, "Active students")).toHaveText("1");
+  await expect(flaggedTab).toHaveText(new RegExp(`Flagged answers\\s*${baseline.flagged + 1}$`), { timeout: T });
+  await expect(tile(page, "Questions answered")).toHaveText(String(baseline.answered + 1), { timeout: T });
+  await expect(tile(page, "Active students")).toHaveText(String(baseline.students + 1));
+  await expect(heat).not.toContainText("P-Median", { timeout: T }); // a chart card's content changed with the scope
+  expect(await heat.innerText()).not.toBe(heatBefore);
   await expect(page.locator("details").filter({ hasText: `${TAG_DEL} why` })).toHaveCount(1);
   await expect(page.locator("details").filter({ hasText: `${TAG_MAIN} why` })).toHaveCount(0);
   await expect(page.locator("#voice")).toContainText(DEL_NAME);
 });
 
-test("dark mode at 390x844 shows the jump link and does not overflow horizontally", async ({ browser }) => {
+async function openDark390(browser: Browser) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
+  await login(page, adminEmail);
+  await page.addInitScript(() => localStorage.setItem("nos:theme-pref", "dark"));
+  await page.goto("/admin");
+  await expect(page.getByTestId("admin-dashboard")).toBeVisible({ timeout: T });
+  await expect(page.locator("html")).toHaveClass(/dark/); // non-vacuity: really dark
+  return { ctx, page };
+}
+
+test("dark mode at 390x844 shows the jump link", async ({ browser }) => {
+  const { ctx, page } = await openDark390(browser);
   try {
-    await login(page, adminEmail);
-    await page.addInitScript(() => localStorage.setItem("nos:theme-pref", "dark"));
-    await page.goto("/admin");
-    await expect(page.getByTestId("admin-dashboard")).toBeVisible({ timeout: T });
-    await expect(page.locator("html")).toHaveClass(/dark/); // non-vacuity: really dark
     await expect(page.getByRole("link", { name: /Read what students said/ })).toBeVisible({ timeout: T });
     await expect(page.getByRole("tab", { name: "Usage", exact: true })).toBeVisible();
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(390);
+  } finally {
+    await ctx.close();
+  }
+});
+
+// AppShell scrolls inside <main class="absolute inset-0 overflow-y-auto">, so the document itself can never
+// exceed the viewport; measure the dashboard root and the scroll container instead.
+// TODO(ADM-T5b): test.fail() while the heatmap overflows at 390 (root.scrollWidth measured 398); delete the marker once T5b lands.
+test("dark mode at 390x844 does not overflow horizontally", async ({ browser }) => {
+  test.fail();
+  const { ctx, page } = await openDark390(browser);
+  try {
+    await expect(page.getByRole("link", { name: /Read what students said/ })).toBeVisible({ timeout: T }); // data rendered
+    const w = await page.getByTestId("admin-dashboard").evaluate((el) => ({
+      root: el.scrollWidth,
+      main: (el.closest("main") ?? el).scrollWidth,
+      mainClient: (el.closest("main") ?? el).clientWidth,
+    }));
+    expect(w.root).toBeLessThanOrEqual(390);
+    expect(w.main).toBeLessThanOrEqual(w.mainClient);
   } finally {
     await ctx.close();
   }
@@ -112,7 +151,7 @@ test("dark mode at 390x844 shows the jump link and does not overflow horizontall
 
 test("the admin feedback API answers 404 to a student session", async ({ page }) => {
   await login(page, studentEmail);
-  const day = new Date().toISOString().slice(0, 10);
+  const day = chicagoDay(); // the API's "not in the future" rule is Chicago time
   const res = await page.request.get(`/api/admin/feedback?from=${day}&to=${day}`);
   expect(res.status()).toBe(404);
   // non-vacuity: the same call as the admin is not a 404
