@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogoutUser, getGetCurrentAuthUserQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,10 @@ interface AppShellProps {
   children: ReactNode;
   heroTitle?: string;
   hero?: boolean;
+  isAdmin?: boolean;
 }
 
-export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps) {
+export function AppShell({ userEmail, children, heroTitle, hero, isAdmin }: AppShellProps) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const logoutUser = useLogoutUser();
@@ -85,6 +86,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
                 model's own canonical unit). */}
             <div className="who">
               <span className="email" title={userEmail} data-testid="text-user-email">{userEmail}</span>
+              {isAdmin && <Link href="/admin" data-testid="link-admin" className="btn-band">Admin</Link>}
               <button type="button" className="btn-band" onClick={handleLogout} disabled={logoutUser.isPending} data-testid="button-logout">
                 {logoutLabel}
               </button>
@@ -121,6 +123,7 @@ export function AppShell({ userEmail, children, heroTitle, hero }: AppShellProps
             : <div className="scnd-display text-sm font-semibold" style={{ color: "var(--surface-band-fg)" }}>Network Design Labs</div>}
         </div>
         <span className="text-sm" style={{ color: "var(--ink-300)" }} data-testid="text-user-email">{userEmail}</span>
+        {isAdmin && <Link href="/admin" data-testid="link-admin" className="text-sm hover:underline" style={{ color: "var(--ink-300)" }}>Admin</Link>}
         <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout"
           className="hover:bg-white/10 hover:text-[color:var(--surface-band-fg)]"
           style={{ color: "var(--ink-300)" }}>

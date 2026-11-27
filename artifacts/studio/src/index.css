@@ -251,6 +251,11 @@
   --chart-4: 26 90% 37%; --chart-5: 81 6% 51%;
   --chart-grid: #E2E4DA; --chart-axis-label: #5B5F54;
 
+  /* admin heatmap: step 0 (fewest) .. 4 (most) is always light-to-dark in the light theme and
+     the band ramp mirrored in dark, so "stronger colour = more"; ink picked to clear 4.5:1 */
+  --heat-0: var(--band-0); --heat-1: var(--band-1); --heat-2: var(--band-2); --heat-3: var(--band-3); --heat-4: var(--band-4);
+  --heat-ink-0: #14170F; --heat-ink-1: #FFFFFF; --heat-ink-2: #FFFFFF; --heat-ink-3: #FFFFFF; --heat-ink-4: #FFFFFF;
+
   /* green + ink scales */
   --green-050: #F4F7EB; --green-100: #E7EED4; --green-200: #CDDCA6; --green-300: #AFC975;
   --green-400: #93B747; --green-500: #7DA436; --green-600: #5F7F28; --green-700: #48611E; --green-800: #324414;
@@ -381,6 +386,9 @@
   --chart-1: 79 44% 50%; --chart-2: 78 8% 67%; --chart-3: 79 40% 72%;
   --chart-4: 26 87% 55%; --chart-5: 81 5% 58%;
   --chart-grid: #33362E; --chart-axis-label: #ADB1A4;
+
+  --heat-0: var(--band-4); --heat-1: var(--band-3); --heat-2: var(--band-2); --heat-3: var(--band-1); --heat-4: var(--band-0);
+  --heat-ink-0: #FFFFFF; --heat-ink-1: #14170F; --heat-ink-2: #14170F; --heat-ink-3: #14170F; --heat-ink-4: #14170F;
 
   --text-body: #FCFCFA; --text-muted: #ADB1A4; --text-faint: #83887A; --text-brand: #93B747; --text-primary: #AFC975;
   --surface-band: #181A15; --surface-band-fg: #FCFCFA; --surface-selected: #2A3318; --surface-sunken: #1E201A;

@@ -8,6 +8,7 @@ import { useGetCurrentAuthUser } from "@workspace/api-client-react";
 import NotFound from "@/pages/not-found";
 import { Landing } from "@/pages/Landing";
 import { Workspace } from "@/pages/Workspace";
+import { AdminDashboard } from "@/pages/admin/AdminDashboard";
 import { LegalPage } from "@/pages/legal/LegalPage";
 import { TERMS_OF_SERVICE, PRIVACY_NOTICE } from "@/pages/legal/legalText";
 import { SignIn } from "@/pages/auth/SignIn";
@@ -54,7 +55,7 @@ export function Gate() {
   }
 
   function authedOnly(children: ReactNode, heroTitle?: string, hero?: boolean) {
-    return user ? <AppShell userEmail={user.email} heroTitle={heroTitle} hero={hero}>{children}</AppShell> : <Redirect to="/login" />;
+    return user ? <AppShell userEmail={user.email} isAdmin={user.role === "admin"} heroTitle={heroTitle} hero={hero}>{children}</AppShell> : <Redirect to="/login" />;
   }
 
   return (
@@ -89,6 +90,7 @@ export function Gate() {
               : <Redirect to="/login" />}
         </Route>
       ))}
+      <Route path="/admin">{authedOnly(user?.role === "admin" ? <AdminDashboard /> : <NotFound />)}</Route>
       <Route>{authedOnly(<NotFound />)}</Route>
     </Switch>
   );
