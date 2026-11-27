@@ -92,7 +92,7 @@ export function FeedbackWidget() {
                 placeholder="What's on your mind?"
               />
               {status === "error" && (
-                <p className="mt-1 text-xs text-[color:var(--danger)]" data-testid="feedback-error">{errorText}</p>
+                <p className="mt-1 text-xs text-danger" data-testid="feedback-error">{errorText}</p>
               )}
               <div className="mt-2 flex justify-end">
                 <Button size="sm" data-testid="feedback-send" onClick={handleSend}
