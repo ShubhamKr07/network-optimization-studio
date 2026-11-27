@@ -1,6 +1,6 @@
 # Admin dashboard (WatBot and site feedback) — design
 
-Date: 2026-11-27 · Status: draft for owner review · Branch: `admin-dash-spec` (off `main` `8961e76f`)
+Date: 2026-11-27 · Status: approved with changes 2026-11-27 (D8 US Central), pending adversarial review · Branch: `admin-dash-spec` (off `main` `8961e76f`)
 
 Spec 1 of 2. Spec 2 (later, separate) adds classes, rosters, instructor accounts and the Privacy Notice change that would let an instructor see their own students. This spec builds the owner-only dashboard so Spec 2 can add an instructor scope without reworking it.
 
@@ -28,7 +28,7 @@ Out of scope: instructor access, classes and rosters, any Privacy Notice change 
 | D5 | Site feedback (the "Send feedback" pop-up) is included and kept separate from WatBot. It is anonymous and has no chapter. |
 | D6 | Layout: numbers and voices side by side (§6). |
 | D7 | Charts: no categorical colour. Single olive series, the validated olive band ramp for magnitude, grey for context lines, amber only for the spending cap (with icon and words). One axis per chart. Every chart has a Table view. Rates show their n and "–" below n = 5. |
-| D8 | **Day boundary: UTC.** Recommended and used by the prototype; the owner has not chosen otherwise. Confirm in this review. |
+| D8 | **Day boundary: US Central (`America/Chicago`)**, owner 2026-11-27. Days, weeks and date filters use Chicago midnight, so a day is 23 or 25 hours across daylight-saving changes. The one exception is the spending cap: it is enforced per **UTC** month (`watbot/limits.ts:2`), so its meter shows the UTC month and says so. |
 | D9 | Admin accounts' own WatBot messages are left out of every WatBot number. Site feedback cannot be filtered this way (it is anonymous). |
 
 ## 3. Access gate (security-critical)
@@ -56,7 +56,7 @@ It follows the pattern of `lockedModelGuards.test.ts`, and includes a non-vacuit
 All three are `GET`, admin-only, and read-only.
 
 **Query parameters:**
-- `from` and `to` are UTC dates, inclusive. The span is at most 90 days, `from <= to`, and neither may be in the future. Anything else is a 422 with a plain sentence.
+- `from` and `to` are calendar dates in `America/Chicago` (D8), inclusive. The server turns them into instants with `AT TIME ZONE 'America/Chicago'` and buckets every row by `(created_at AT TIME ZONE 'America/Chicago')::date`. The span is at most 90 days, `from <= to`, and neither may be in the future. Anything else is a 422 with a plain sentence.
 - `modelId` is optional and must be a known model id; an unknown id is a 422.
 
 **WatBot rows** are restricted to users whose `role` is not `admin` (D9), via a join to `users`.
@@ -64,7 +64,7 @@ All three are `GET`, admin-only, and read-only.
 ### 4.1 `GET /api/admin/watbot/metrics`
 Returns counts, not rates, so the studio can bucket by week without losing n. Each block is for the period; `prior` is the same-length period immediately before it, for the tile deltas.
 
-- `days[]`, one per UTC day in range, zero-filled. Each day carries:
+- `days[]`, one per Chicago day in range, zero-filled. Each day carries:
   - `date`;
   - `asked`, plus `answered`, `cancelled`, `unavailable` and `limitReached` (`watbot_messages` role `student`, by `status`);
   - `ratings` and `helped` (`watbot_feedback`);
@@ -84,7 +84,7 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
   - `costUsd`;
   - `tokens{ input, output, cacheRead, cacheWrite }`;
   - `gapTopics[]`, the top 20 `{ topic, count }` from tutor `gap_topic`.
-- `monthToDate{ spendUsd, capUsd }` reuses `monthlySpendUsd` and `monthlyCapUsd` (`watbot/limits.ts`). It always covers the current UTC month and all models, whatever the filters. It is the one number not filtered by D9, because the cap is enforced on all spend.
+- `monthToDate{ spendUsd, capUsd }` reuses `monthlySpendUsd` and `monthlyCapUsd` (`watbot/limits.ts`). It always covers the current **UTC** month, as the cap is enforced, and all models, whatever the filters. The meter's label names the UTC month. It is the one number not filtered by D9, because the cap is enforced on all spend.
 
 ### 4.2 `GET /api/admin/watbot/flagged`
 - **What's included:** tutor replies in range that were rated not helped or were reported, newest first, at most 100, plus a `truncated` boolean.
@@ -139,7 +139,7 @@ Rules carried from the review:
 - **Route `/admin`:** inside the single `<Switch>` in `App.tsx` (studio gotcha). It renders only when `user.role === "admin"`; anyone else gets the existing `NotFound`. `AppShell` shows an "Admin" link only for admins.
 - **Layout (desktop):**
   - top bar;
-  - one filter row (date presets 7, 30 and 90 days, custom range, model select, and "Days in UTC");
+  - one filter row (date presets 7, 30 and 90 days, custom range, model select, and "Days in US Central time");
   - left two-thirds: attention strip, tiles, tabs;
   - right, 440px: the sticky "What students said" column.
   - Below 1100px the column stacks under the charts. Dark mode follows the app's theme and uses the dark band ramp.
@@ -169,6 +169,7 @@ Rules carried from the review:
 **API (vitest, real Postgres):**
 - **Gate:** signed out, student, instructor, stale terms version, and a deleted account → 404 on all three endpoints; admin → 200. Shown red by removing `requireAdmin`.
 - **Ordering:** the gate also returns 404 for signed out, proving the router order.
+- **Day boundary:** a row at 05:30 UTC on a winter day counts on the previous Chicago day, and a row on the DST-change day lands in that day's 23- or 25-hour bucket.
 - **Metrics:** seed rows with hand-computed expected values. At least one populated row per metric, a row outside the range, and an admin user's row that must be excluded. Never an empty set (repo gotcha on empty fixtures).
 - **Flagged:** the exact key set; a seeded email and user id appear nowhere in the JSON; the question is the preceding student message, not another conversation's.
 - **Site feedback:** the exact key set `{id, body, createdAt}`; the range is honoured.
@@ -198,5 +199,4 @@ Rules carried from the review:
 
 ## 10. Open items for this review
 
-- **D8:** confirm UTC as the day boundary, or pick US Central or India time.
-- `PRODUCT.md` (`artifacts/studio/PRODUCT.md`, written during the Impeccable round) is committed with this spec. Keep it in the repo, or drop it?
+Resolved 2026-11-27: D8 is US Central; `PRODUCT.md` stays in the repo. None remain open.
