@@ -97,7 +97,7 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
 - **What's included:** tutor replies in range that were rated not helped or were reported, newest first, at most 100, plus a `truncated` boolean.
 - **Each item carries:**
   - `at`, `modelId` and `messageType`;
-  - `question`: the text of the student message immediately before the reply in its conversation;
+  - `question`: the text of the student message immediately before the reply in its conversation, or **null** when none exists (an orphan reply). It is shown as "(question not found)" (plan review);
   - `answer`: the reply's block texts with citation labels only (`label`, not `citedText`);
   - `rating`: `{ reason, note }` or null;
   - `report`: `{ reason, note }` or null;
@@ -114,7 +114,8 @@ Returns counts, not rates, so the studio can bucket by week without losing n. Ea
 - **New additive indexes**, pushed before the API deploy (§9):
   - `watbot_messages (role, created_at)`, for range scans across all users. Today's indexes are per conversation and per user.
   - `watbot_feedback (created_at)`;
-  - `watbot_reports (created_at)`.
+  - `watbot_reports (created_at)`;
+  - `watbot_reports (message_id, id)`, for the flagged query's per-reply report lookup (plan review).
 - **Acceptance:**
   - A test seeds 10× the production row counts, measured read-only during planning. Each endpoint must answer in under 1 s locally for a 90-day range.
   - The plan records `EXPLAIN` output showing index use.
@@ -219,9 +220,9 @@ Rules carried from the review:
 
 1. **Schema first** (`docs/ops/schema-push-before-deploy.md`), with its own approval:
    - Read-only audit: `SELECT role, count(*) FROM users GROUP BY role`. It must show only `student` or `instructor`. Anything else stops the rollout for an owner decision.
-   - Then push the three indexes and the role `CHECK`. Both are additive; the indexes are built `CONCURRENTLY` where `drizzle-kit` allows.
+   - Then apply the role `CHECK` (`NOT VALID`, then `VALIDATE`) and the four indexes (`CONCURRENTLY`) by hand with `lock_timeout`, verify them in the catalog, and confirm a `drizzle-kit push` dry run reports no changes. The exact procedure is in the plan's T7 runbook.
 2. Merge and deploy **nos-api** (new contract and endpoints), then **nos-studio** (page and header link), each with its own approval.
-3. With **separate approval, and only after step 2 is live** (§3.1 trap): `render psql` runs `UPDATE users SET role = 'admin' WHERE lower(email) = lower('<owner email>')` in a transaction, checking one row changed. The email stays out of the repo; the runbook takes it as a parameter.
+3. With **separate approval, and only after step 2 is live** (§3.1 trap): a `DO` block via `render psql` updates by `lower(email)` and raises unless exactly one row changed, so nothing is written otherwise. The email stays out of the repo; the runbook takes it as a parameter.
 4. Runbook `docs/ops/admin-role.md`: grant, revoke (`SET role = 'student'`), and the ordering trap.
 5. The owner opens `/admin` in production; verify by read-only query that no other account has `role = 'admin'`.
 

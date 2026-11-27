@@ -41,9 +41,9 @@
 |---|---|---|---|
 | 1 | T1 Role invariant (contract + DB `CHECK` + `parseRole`) | backend-engineer | – |
 | 2 | T2 Admin contract, gate, site-feedback endpoint | backend-engineer | T1 |
-| 3 | T3 Metrics endpoint + indexes + performance test | backend-engineer | T2 |
-| 3 | T4 Flagged-answers endpoint | backend-engineer | T2 |
+| 3 | T3 Metrics service + indexes | backend-engineer | T2 |
 | 3 | T5 Studio `/admin` page | frontend-engineer | T2 (generated hooks) |
+| 3b | T4 Flagged-answers service + endpoint-wide performance test | backend-engineer | T3 (serialised: both touch `routes/admin.ts`, plan review F5) |
 | 4 | T6 Playwright e2e + real-browser QA | qa-sdet (fable review) | T3, T4, T5 |
 | 4 | T7 Runbook + changelog | lead | T3, T4, T5 |
 
@@ -273,7 +273,7 @@ AdminFlaggedAnswers:
           at: { type: string, format: date-time }
           modelId: { type: string }
           messageType: { type: string, nullable: true }
-          question: { type: string }
+          question: { type: string, nullable: true, description: "null when no student message precedes the reply in its conversation" }
           answer: { type: object, required: [text, citations], properties: { text: { type: string }, citations: { type: array, items: { type: string } } } }
           rating: { type: object, nullable: true, required: [reason, note], properties: { reason: { type: string, nullable: true }, note: { type: string, nullable: true } } }
           report: { type: object, nullable: true, required: [reason, note], properties: { reason: { type: string, nullable: true }, note: { type: string, nullable: true } } }
@@ -319,7 +319,7 @@ it.each(PATHS)("%s: admin → 200", async (p) => {
 });
 it("422s on a bad range, as plain sentences", async () => {
   const cookie = await asAdmin();
-  for (const q of ["?from=2026-11-27&to=2026-11-01", "?from=2026-01-01&to=2026-11-27", "?from=2099-01-01&to=2099-01-02", "?from=2026-11-01&to=2026-11-27&modelId=nope", "?from=x&to=y"]) {
+  for (const q of ["?from=2026-02-30&to=2026-03-02", "?from=2026-11-01&to=2026-11-31", "?from=2026-11-27&to=2026-11-01", "?from=2026-01-01&to=2026-11-27", "?from=2099-01-01&to=2099-01-02", "?from=2026-11-01&to=2026-11-27&modelId=nope", "?from=x&to=y"]) {
     const res = await request(app).get("/api/admin/watbot/metrics" + q).set("Cookie", cookie);
     expect(res.status).toBe(422);
     expect(res.body.error).toMatch(/^[A-Z][^[{]*\.$/);
@@ -379,11 +379,19 @@ const TZ = "America/Chicago";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const chicagoToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now);
 const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000 + 1;
+// Date.parse rolls impossible dates forward ("2026-02-30" → 2 March), so round-trip
+// the components and reject anything that changed (plan review F1).
+const isRealDate = (d: string) => {
+  if (!DATE.test(d)) return false;
+  const [y, m, day] = d.split("-").map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1, day));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === day;
+};
 
 export type AdminRange = { from: string; to: string; modelId?: string };
 export function parseAdminRange(q: Record<string, unknown>, now = new Date()): { ok: true; range: AdminRange } | { ok: false; error: string } {
   const { from, to, modelId } = q;
-  if (typeof from !== "string" || typeof to !== "string" || !DATE.test(from) || !DATE.test(to) || isNaN(Date.parse(from)) || isNaN(Date.parse(to)))
+  if (typeof from !== "string" || typeof to !== "string" || !isRealDate(from) || !isRealDate(to))
     return { ok: false, error: "Choose a start and end date." };
   if (from > to) return { ok: false, error: "The start date must be on or before the end date." };
   if (to > chicagoToday(now)) return { ok: false, error: "The end date can't be in the future." };
@@ -411,10 +419,14 @@ import { GetAdminFeedbackResponse } from "@workspace/api-zod";
 import { requireAdmin } from "../middlewares/auth.js";
 import { parseAdminRange, chicagoStart, chicagoEnd } from "../services/adminRange.js";
 
+// Every admin endpoint lives on `admin`, and the ONLY way it is reachable is the
+// gated mount below (plan review F4). Never register an admin route on `router`.
 const router: IRouter = Router();
-router.use("/admin", requireAdmin);
+const admin: IRouter = Router();
+router.use("/admin", requireAdmin, admin);
+export const adminRoutesForTests = admin;
 
-router.get("/admin/feedback", async (req, res) => {
+admin.get("/feedback", async (req, res) => {
   const p = parseAdminRange(req.query as Record<string, unknown>);
   if (!p.ok) { res.status(422).json({ error: p.error }); return; }
   try {
@@ -436,12 +448,19 @@ Register it in `routes/index.ts`: import `adminRouter from "./admin.js"` and add
 import { readFileSync } from "node:fs";
 const admin = readFileSync(new URL("../routes/admin.ts", import.meta.url), "utf8");
 const index = readFileSync(new URL("../routes/index.ts", import.meta.url), "utf8");
-it("every admin route sits behind requireAdmin, mounted before any route", () => {
-  const gate = admin.indexOf('router.use("/admin", requireAdmin)');
-  const routes = [...admin.matchAll(/router\.(get|post|put|patch|delete)\("([^"]+)"/g)];
-  expect(routes.length).toBeGreaterThan(0); // non-vacuity
-  expect(gate).toBeGreaterThan(-1);
-  for (const r of routes) { expect(r[2]!.startsWith("/admin/")).toBe(true); expect(r.index!).toBeGreaterThan(gate); }
+it("admin.ts registers nothing on `router` except the one gated mount", () => {
+  const onRouter = [...admin.matchAll(/\brouter\.(\w+)\(/g)].map(m => m[0]);
+  expect(onRouter).toEqual(["router.use("]);
+  expect(admin).toContain('router.use("/admin", requireAdmin, admin)');
+});
+// Behavioural half: whatever form a route takes (get, route(), use, sub-router),
+// every path on the admin sub-router answers a STUDENT with 404 (plan review F4).
+it("every route on the admin sub-router 404s a student", async () => {
+  const paths = adminRoutesForTests.stack.flatMap((l: { route?: { path: string } }) => l.route ? [l.route.path] : []);
+  expect(paths.length).toBeGreaterThanOrEqual(1); // non-vacuity; T4 raises this to 3 (feedback, metrics, flagged)
+  expect(adminRoutesForTests.stack.every((l: { route?: unknown }) => !!l.route)).toBe(true); // no nested use() to hide routes
+  const cookie = await asStudent();
+  for (const path of paths) expect((await request(app).get("/api/admin" + path + "?from=2026-11-01&to=2026-11-27").set("Cookie", cookie)).status).toBe(404);
 });
 it("adminRouter is registered right after authRouter, before any router that mounts requireAuth", () => {
   const order = [...index.matchAll(/router\.use\((\w+)\)/g)].map(m => m[1]);
@@ -449,7 +468,10 @@ it("adminRouter is registered right after authRouter, before any router that mou
 });
 ```
 
-- [ ] **Step 9:** Run `adminGate.test.ts`, `adminRouteGuards.test.ts`, `feedback.test.ts` and `watbotRoutes.test.ts` (no regression); expect PASS. Then show the guard is non-vacuous: temporarily delete the `router.use("/admin", requireAdmin)` line, see both tests FAIL, and restore it. Run `pnpm run typecheck`.
+- [ ] **Step 9:** Run `adminGate.test.ts`, `adminRouteGuards.test.ts`, `feedback.test.ts` and `watbotRoutes.test.ts` (no regression); expect PASS. In T2 the non-vacuity bound is `>= 1`; T4 raises it to `>= 3`. Show the guard can fail:
+  - change the mount to `router.use("/admin", admin)` (no gate) and see the behavioural test FAIL;
+  - add a stray `router.get("/admin/x", …)` and see the source test FAIL;
+  - restore both, then run `pnpm run typecheck`.
 
 - [ ] **Step 10: Commit** `[ADM-T2] add the admin API contract, the 404 admin gate and the site-feedback endpoint` (pathspec: the files above plus the generated directories).
 
@@ -471,7 +493,7 @@ it("adminRouter is registered right after authRouter, before any router that mou
 index("IDX_watbot_messages_role_created").on(t.role, t.createdAt),
 ```
 
-Give `watbot_feedback` an index list `(t) => [uniqueIndex(...existing), index("IDX_watbot_feedback_created").on(t.createdAt)]`, and the same for `watbot_reports` (`IDX_watbot_reports_created`). Push locally.
+Give `watbot_feedback` an index list `(t) => [uniqueIndex(...existing), index("IDX_watbot_feedback_created").on(t.createdAt)]`, and the same for `watbot_reports` (`IDX_watbot_reports_created`), plus `index("IDX_watbot_reports_message").on(t.messageId, t.id)` for the flagged query's per-reply report lookup (plan review F6). Push locally.
 
 - [ ] **Step 2: Write the failing metrics test** (`adminMetrics.test.ts`, real Postgres). Seed through Drizzle, with a dedicated marker conversation title and teardown by user id:
   - **Users:** student S1, instructor S2 (who must be counted), and admin A1 (who must be excluded). A malformed role can't be inserted once T1's `CHECK` exists, so the admin exclusion is the allowlist's test.
@@ -502,7 +524,7 @@ Give `watbot_feedback` an index list `(t) => [uniqueIndex(...existing), index("I
   - `gapTopics[0]` equals `{ topic: "Lagrangian relaxation", count: 2, nearestCovered: "Facility location" }`, plus `"Stochastic demand"` at count 1;
   - `sessions: 2`. S1's two questions 20 min apart make one session, and S2 one more. The admin's session is excluded.
 
-  Day 2026-11-11 is zero-filled (`asked: 0`). `matrix` carries `p-median-us`. With `modelId: "max-coverage-us"`, S1's rows disappear.
+  Day 2026-11-11 is completely empty and must equal `blankDay("2026-11-11")` exactly (`toEqual`): every counter 0, cost 0, both latencies null. `matrix` carries `p-median-us`. With `modelId: "max-coverage-us"`, S1's rows disappear.
 
 - [ ] **Step 3: Run, expect FAIL** (`getAdminMetrics` missing).
 
@@ -585,10 +607,17 @@ SELECT count(*) AS sessions,
 
 - **Month to date:** `{ spendUsd: await monthlySpendUsd(now), capUsd: monthlyCapUsd(), month: now.toISOString().slice(0, 7) }`. This one is unfiltered by design (spec §4.1).
 
-Convert numeric strings with `Number(...)`, round cost to 4 dp, and return the object. Wire it in `routes/admin.ts`:
+**Zero-fill (plan review F7):** build one accumulator per day from the `generate_series` before merging any per-day query:
 
 ```ts
-router.get("/admin/watbot/metrics", async (req, res) => {
+const blankDay = (date: string) => ({ date, asked: 0, answered: 0, cancelled: 0, unavailable: 0, limitReached: 0, ratings: 0, helped: 0,
+  notices: 0, refused: 0, stopped: 0, failedNotices: 0, costUsd: 0, latencyMedianMs: null, latencyP95Ms: null, estimated: 0 });
+```
+
+Every per-day query writes into this map, and nothing is ever spread from a query row. Convert numeric strings with `Number(...)`, round cost to 4 dp, and return the object. Wire it in `routes/admin.ts`:
+
+```ts
+admin.get("/watbot/metrics", async (req, res) => {
   const p = parseAdminRange(req.query as Record<string, unknown>);
   if (!p.ok) { res.status(422).json({ error: p.error }); return; }
   try { res.json(GetAdminWatBotMetricsResponse.parse(await getAdminMetrics(p.range))); }
@@ -598,14 +627,19 @@ router.get("/admin/watbot/metrics", async (req, res) => {
 
 - [ ] **Step 5: Run `adminMetrics.test.ts`, expect PASS.** If a number disagrees, fix the SQL, never the expected value. The expectations are hand-computed from the seed.
 
-- [ ] **Step 6: Performance test** (`adminPerf.test.ts`)
+- [ ] **Step 6: (moved to T4, Step 5)**. The performance test needs both endpoints, so it runs after the flagged endpoint exists (plan review F6).
+
+- [ ] **Step 6b: Commit** `[ADM-T3] add the WatBot metrics endpoint and its indexes`.
+
+<!-- T4 owns the performance test below -->
+- [ ] **(T4) Performance test** (`adminPerf.test.ts`)
   - **Volume:** `PERF_SCALE` defaults to 10× the production counts measured read-only during planning. When unknown, use 10× of 20,000 student rows: 200,000 student, 200,000 tutor and 20,000 feedback rows over 180 days for 150 users. Seed with `INSERT … SELECT generate_series`.
   - **Assert:** each endpoint for a 90-day range answers in under 1000 ms (median of 3).
   - **Record:** `EXPLAIN (ANALYZE, BUFFERS)` of the days query, written to `.harness/adm-explain.txt` (gitignored) and pasted into the task report.
   - **Cleanup:** tear down by marker title.
   - **Tagging:** describe it with `.skipIf(!process.env.ADMIN_PERF)`, so the normal gate doesn't spend minutes on it. The lead runs it once with `ADMIN_PERF=1` before merge. If it misses, stop and report; don't tune silently (spec §4.4).
 
-- [ ] **Step 7: Commit** `[ADM-T3] add the WatBot metrics endpoint with indexes and a 10x performance check`.
+
 
 ---
 
@@ -624,7 +658,7 @@ router.get("/admin/watbot/metrics", async (req, res) => {
     - Feedback on T1: helped = false, reason `still_stuck`, note "still lost", `repair_message_id` = student R1.
     - R1 (the repair marker) is followed by tutor T1b ("Re-answer text."), so its status is **answered**.
   - **Conversation 2 (S2), interleaved ids with conversation 1:** student Q2, then tutor T2. Feedback on T2: helped = false, reason `hard_to_follow`, repair R2 with **no** tutor row after it, so its status is **not_completed**.
-  - **Conversation 3 (S1):** tutor T3 with a report, reason `wrong_or_misleading`, note "wrong".
+  - **Conversation 3 (S1):** tutor T3 with **no student row before it** (an orphan, plan review F2), with a report, reason `wrong_or_misleading`, note "wrong". It must be returned with `question: null`, not dropped and not a 500.
   - **Admin A1:** a flagged tutor row that must be excluded.
   - Every user's email contains `adm-flag-secret`.
 
@@ -632,7 +666,7 @@ router.get("/admin/watbot/metrics", async (req, res) => {
   - the items are T3, T2, T1, newest first;
   - T1: `question === Q1 text` (not R1, not conversation 2's), `answer.citations` equals `["Ch 3 · p.71"]`, and `reanswer` equals `{ status: "answered", text: "Re-answer text." }`;
   - T2: `reanswer.status === "not_completed"` and `text === null`;
-  - T3: `rating === null`, and `report` equals `{ reason: "wrong_or_misleading", note: "wrong" }`;
+  - T3: `question === null`, `rating === null`, and `report` equals `{ reason: "wrong_or_misleading", note: "wrong" }`;
   - every item's keys equal exactly `["answer", "at", "messageType", "modelId", "question", "rating", "reanswer", "report"]`;
   - `JSON.stringify(res.body)` contains neither `adm-flag-secret`, nor any seeded user id, conversation id or message id as a value, nor `"BOOK TEXT"` (no `citedText`).
 
@@ -658,6 +692,7 @@ ORDER BY t.created_at DESC, t.id DESC LIMIT 101
 ```
 
 Shape in TS:
+- `question = question_blocks ? question_blocks.map(b => b.text).join(" ").trim() : null`; the studio shows "(question not found)" in muted text;
 - `text = blocks.map(b => b.text).join(" ").trim()`;
 - `citations = [...new Set(blocks.flatMap(b => b.citations.map(c => c.label)))]`;
 - `rating = f.helped === false ? { reason, note } : null`;
@@ -665,10 +700,11 @@ Shape in TS:
 - `reanswer = repair_message_id == null ? { status: "none", text: null } : reanswer_blocks ? { status: "answered", text } : { status: "not_completed", text: null }`;
 - `truncated = rows.length > 100`.
 
-Never put `id` in the output object; select it only for ordering. Wire `GET /admin/watbot/flagged` the same way as metrics, using `GetAdminWatBotFlaggedResponse.parse`.
+Never put `id` in the output object; select it only for ordering. Wire `admin.get("/watbot/flagged", …)` the same way as metrics, using `GetAdminWatBotFlaggedResponse.parse`, and raise the guard test's non-vacuity bound to `>= 3`.
 
 - [ ] **Step 4: Run, expect PASS**, plus `adminGate.test.ts` and `adminRouteGuards.test.ts`.
-- [ ] **Step 5: Commit** `[ADM-T4] add the flagged-answers endpoint with re-answer status and no identities`.
+- [ ] **Step 5: Performance test.** Write `adminPerf.test.ts` exactly as specified under "(T4) Performance test" in Task 3. It covers all three endpoints, and the plan for the flagged query must show `IDX_watbot_reports_message` in use.
+- [ ] **Step 6: Commit** `[ADM-T4] add the flagged-answers endpoint, re-answer status, no identities, and the 10x performance check`.
 
 ---
 
@@ -714,7 +750,7 @@ Implement `src/lib/adminMetrics.ts` to pass:
   - the Table toggle on "Questions per day" shows the fixture's daily counts as table rows;
   - in a week with 4 ratings the helped-rate table shows "–";
   - choosing a model shows "Site feedback has no chapter, so it shows for every chapter.";
-  - expanding a flagged item shows its re-answer text, and `reanswer.status === "not_completed"` shows "Re-answer didn't finish".
+  - expanding a flagged item shows its re-answer text, and `reanswer.status === "not_completed"` shows "Re-answer didn't finish", and `question: null` shows "(question not found)".
 
 - [ ] **Step 3: Implement**, porting markup, tokens and copy from `docs/superpowers/specs/assets/2026-11-27-admin-dashboard-prototype.html`:
   - **`App.tsx`:** inside the single `<Switch>`, before the catch-all:
@@ -798,10 +834,42 @@ Before running, check the `watbot_feedback` and `watbot_messages` columns this u
 
 - [ ] **Step 1:** Write `docs/ops/admin-role.md`:
   - **Audit (read-only):** `render psql <db> --output text --command "BEGIN READ ONLY; SELECT role, count(*) FROM users GROUP BY role; ROLLBACK;"`. Anything other than student or instructor stops the rollout.
-  - **Schema push before the API deploy** (link `schema-push-before-deploy.md`): the CHECK plus the three indexes.
-  - **Grant, only after the new API is live:** `BEGIN; UPDATE users SET role = 'admin' WHERE lower(email) = lower(:'email'); -- expect UPDATE 1, else ROLLBACK; COMMIT;`. The email is never written in the repo.
+  - **Schema before the API deploy, applied by hand, not by a blind `drizzle-kit push`** (plan review F8; link `schema-push-before-deploy.md`):
+    1. Locally, `pnpm --filter @workspace/db push --verbose --strict` against a copy of the production schema (or read the generated SQL), and record the exact DDL.
+    2. On production, via `render psql`, in this order, each statement on its own:
+
+```sql
+SET lock_timeout = '5s';
+ALTER TABLE users ADD CONSTRAINT "CK_users_role" CHECK (role IN ('student','instructor','admin')) NOT VALID;  -- brief lock, no scan
+ALTER TABLE users VALIDATE CONSTRAINT "CK_users_role";  -- scans with a weaker lock; fails if any row is invalid
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_watbot_messages_role_created" ON watbot_messages (role, created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_watbot_feedback_created" ON watbot_feedback (created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_watbot_reports_created" ON watbot_reports (created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "IDX_watbot_reports_message" ON watbot_reports (message_id, id);
+```
+
+    3. **Verify:** `SELECT conname, convalidated FROM pg_constraint WHERE conname = 'CK_users_role'` returns `t`, and `SELECT indexname FROM pg_indexes WHERE indexname LIKE 'IDX_watbot_%'` lists all four. A `drizzle-kit push` dry run against production afterwards must report no changes.
+    4. **Failure:** if `VALIDATE` fails, a row holds an unexpected role. Run `ALTER TABLE users DROP CONSTRAINT "CK_users_role";` and stop for an owner decision; the audit snapshot alone doesn't guard against a write in between. A failed `CONCURRENTLY` build leaves an INVALID index: `DROP INDEX CONCURRENTLY` it and retry.
+    5. **No data changes**, so no restore is needed. Render's daily snapshot is the backstop.
+  - **Grant, only after the new API is live** (plan review F3). The email comes from the operator's shell variable, never from the repo:
+
+```bash
+read -r ADMIN_EMAIL   # typed by the owner, not echoed into the transcript
+render psql <db> --output text --command "
+DO \$\$
+DECLARE n int;
+BEGIN
+  UPDATE users SET role = 'admin' WHERE lower(email) = lower('$ADMIN_EMAIL');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'expected exactly 1 row, got %', n; END IF;  -- rolls the whole DO back
+END \$\$;
+SELECT count(*) AS admins FROM users WHERE role = 'admin';"
+```
+
+    The `DO` block is one transaction: zero or several matches raise, and nothing is written. Then the count must be `1`.
   - **Revoke:** `SET role = 'student'`.
   - **Verify:** `SELECT count(*) FROM users WHERE role = 'admin'` returns 1.
+  - **Note for the operator running this:** the `DO` block interpolates `$ADMIN_EMAIL` in the shell. Paste only an email address, with no quotes. A quote in the value breaks the statement, which then fails closed (raises) rather than writing.
   - **The ordering trap** (spec §3.1).
 - [ ] **Step 2:** Append a changelog section "ADM: admin dashboard (Spec 1)": what landed, commit SHAs per task, gate counts and deviations.
 - [ ] **Step 3: Commit** `[ADM-T7] add the admin-role runbook and the changelog entry`.
