@@ -1594,7 +1594,7 @@ components:
           format: email
         role:
           type: string
-          enum: [student, instructor]
+          enum: [student, instructor, admin]
     AuthUserEnvelope:
       type: object
       required: [user]

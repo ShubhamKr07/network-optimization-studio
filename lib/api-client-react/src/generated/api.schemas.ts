@@ -188,6 +188,7 @@ export type AuthUserRole = typeof AuthUserRole[keyof typeof AuthUserRole];
 export const AuthUserRole = {
   student: 'student',
   instructor: 'instructor',
+  admin: 'admin',
 } as const;
 
 export interface AuthUser {

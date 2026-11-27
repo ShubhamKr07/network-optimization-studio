@@ -36,6 +36,7 @@ import {
 } from "../lib/resetTokens.js";
 import * as Sentry from "@sentry/node";
 import { logger } from "../lib/logger.js";
+import { parseRole } from "../lib/roles.js";
 
 const router: IRouter = Router();
 
@@ -112,7 +113,7 @@ function setSessionCookie(res: Response, user: { id: string; passwordHash: strin
 }
 
 function toAuthUser(user: { id: string; email: string | null; role: string }) {
-  return { id: user.id, email: user.email ?? "", role: user.role as "student" | "instructor" };
+  return { id: user.id, email: user.email ?? "", role: parseRole(user.role) };
 }
 
 router.post("/auth/register", async (req: Request, res: Response) => {

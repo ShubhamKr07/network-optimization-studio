@@ -1205,7 +1205,7 @@ export const LoginUserResponse = zod.object({
   "user": zod.union([zod.object({
   "id": zod.string(),
   "email": zod.string().email(),
-  "role": zod.enum(['student', 'instructor'])
+  "role": zod.enum(['student', 'instructor', 'admin'])
 }),zod.null()])
 })
 
@@ -1225,7 +1225,7 @@ export const GetCurrentAuthUserResponse = zod.object({
   "user": zod.union([zod.object({
   "id": zod.string(),
   "email": zod.string().email(),
-  "role": zod.enum(['student', 'instructor'])
+  "role": zod.enum(['student', 'instructor', 'admin'])
 }),zod.null()])
 })
 
@@ -1275,7 +1275,7 @@ export const ResetPasswordResponse = zod.object({
   "user": zod.union([zod.object({
   "id": zod.string(),
   "email": zod.string().email(),
-  "role": zod.enum(['student', 'instructor'])
+  "role": zod.enum(['student', 'instructor', 'admin'])
 }),zod.null()])
 })
 

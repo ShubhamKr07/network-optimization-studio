@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { check, index, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
 // TODO(remove after v2 stabilizes): unused by the email/password cookie session in A1.3.
 export const sessionsTable = pgTable(
@@ -33,7 +33,7 @@ export const usersTable = pgTable("users", {
   role: varchar("role").notNull().default("student"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [check("CK_users_role", sql`${t.role} IN ('student', 'instructor', 'admin')`)]);
 
 export type UpsertUser = typeof usersTable.$inferInsert;
 export type User = typeof usersTable.$inferSelect;
